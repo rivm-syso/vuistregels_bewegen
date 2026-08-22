@@ -1,9 +1,21 @@
 """Adapter voor speelpleklocaties. Combineert drie bronnen:
 Buitenspeelkaart (jantje beton / kern-registratie), OpenStreetMap
 (Geofabrik-shapefiles per provincie), en de speelvoorzieningen die
-door de BGT-adapter zijn afgezonderd."""
+door de BGT-adapter zijn afgezonderd.
+
+Opgesplitst in drie verantwoordelijkheden:
+
+- ``SpeelplekkenDownloader``: haalt de twee landelijke bronnen op en
+  cacht ze op disk (I/O).
+- ``SpeelplekkenParser``: filtert de landelijke bronnen op de
+  buurt-geometrie, voegt de BGT-speelvoorzieningen toe, converteert
+  alles naar puntgeometrie en cacht per gemeente (transformatie).
+- ``Speelplekken``: facade die downloader en parser combineert en de
+  ``SpeelplekkenPoort`` implementeert.
+"""
 import os
 import shutil
+from typing import Optional
 
 import geopandas as gpd
 import pandas as pd
@@ -30,16 +42,12 @@ DEFAULT_PROVINCIES = [
 ]
 
 
-class Speelplekken():
-    """Adapter voor speelpleklocaties uit meerdere bronnen, per
-    gemeente. Bij instantiëring worden de landelijke bronnen gedownload
-    wanneer die nog niet lokaal aanwezig zijn."""
+class SpeelplekkenDownloader():
+    """Downloadt de twee landelijke bronnen (Buitenspeelkaart en OSM)
+    naar disk. Idempotent."""
 
-    def __init__(self, gemeente_code: str, geometry: BaseGeometry) -> None:
-        self.gemeente_code = gemeente_code
-        self.geometry = geometry
-        self.download_buitenspeelkaart()
-        self.download_osm_playgrounds()
+    def __init__(self, data_path: str = DATA_PATH) -> None:
+        self.data_path = data_path
 
     def download_buitenspeelkaart(self) -> None:
         """Haal per plaats de speelplek-features op van
@@ -47,13 +55,13 @@ class Speelplekken():
         plaatsen = requests.get("https://www.buitenspeelkaart.nl/getPlaatsen")
         plaats_ids = gpd.GeoDataFrame.from_features(plaatsen.json()).id.to_list()
         for plaats_id in plaats_ids:
-            if not os.path.exists(f"{DATA_PATH}/buitenspeelkaart/{plaats_id}.geojson"):
+            if not os.path.exists(f"{self.data_path}/buitenspeelkaart/{plaats_id}.geojson"):
                 print("Buitenspeelkaart data wordt gedownload")
                 sp = requests.get(f"https://www.buitenspeelkaart.nl/getFeatures/1/p/{plaats_id}")
                 sp = gpd.GeoDataFrame.from_features(sp.json())
-                if 'buitenspeelkaart' not in os.listdir(DATA_PATH):
-                    os.mkdir(f"{DATA_PATH}/buitenspeelkaart")
-                sp.to_file(f"{DATA_PATH}/buitenspeelkaart/{plaats_id}.geojson", driver='GeoJSON')
+                if 'buitenspeelkaart' not in os.listdir(self.data_path):
+                    os.mkdir(f"{self.data_path}/buitenspeelkaart")
+                sp.to_file(f"{self.data_path}/buitenspeelkaart/{plaats_id}.geojson", driver='GeoJSON')
         print("Buitenspeelkaart data gevonden.")
 
     def download_osm_playgrounds(self, fclasses: list = ['playground']) -> None:
@@ -61,98 +69,119 @@ class Speelplekken():
         filter op speelpleken (``fclass == 'playground'``). Resultaat
         wordt per provincie opgeslagen als GeoJSON in RD-New."""
         for provincie in DEFAULT_PROVINCIES:
-            if not os.path.exists(f"{DATA_PATH}/osm/{provincie}_playgrounds.geojson"):
-                if 'osm' not in os.listdir(DATA_PATH):
-                    os.mkdir(f"{DATA_PATH}/osm")
-                file_downloader(f"https://download.geofabrik.de/europe/netherlands/{provincie}-latest-free.shp.zip", f"{DATA_PATH}/osm/{provincie}-latest-free.shp.zip")
-                unzip_file(f"{DATA_PATH}/osm/{provincie}-latest-free.shp.zip", f"{DATA_PATH}/osm/{provincie}")
-                os.remove(f"{DATA_PATH}/osm/{provincie}-latest-free.shp.zip")
-                file1 = gpd.read_file(f'{DATA_PATH}/osm/{provincie}/gis_osm_pois_a_free_1.shp')
-                file2 = gpd.read_file(f'{DATA_PATH}/osm/{provincie}/gis_osm_pois_free_1.shp')
-                shutil.rmtree(f'{DATA_PATH}/osm/{provincie}')
+            if not os.path.exists(f"{self.data_path}/osm/{provincie}_playgrounds.geojson"):
+                if 'osm' not in os.listdir(self.data_path):
+                    os.mkdir(f"{self.data_path}/osm")
+                file_downloader(f"https://download.geofabrik.de/europe/netherlands/{provincie}-latest-free.shp.zip", f"{self.data_path}/osm/{provincie}-latest-free.shp.zip")
+                unzip_file(f"{self.data_path}/osm/{provincie}-latest-free.shp.zip", f"{self.data_path}/osm/{provincie}")
+                os.remove(f"{self.data_path}/osm/{provincie}-latest-free.shp.zip")
+                file1 = gpd.read_file(f'{self.data_path}/osm/{provincie}/gis_osm_pois_a_free_1.shp')
+                file2 = gpd.read_file(f'{self.data_path}/osm/{provincie}/gis_osm_pois_free_1.shp')
+                shutil.rmtree(f'{self.data_path}/osm/{provincie}')
                 df_provincie = pd.concat([file1, file2]).to_crs(28992)
                 df_provincie = df_provincie.loc[df_provincie.fclass.isin(fclasses)]
                 df_provincie.geometry = df_provincie.geometry.centroid
-                df_provincie.to_file(f"{DATA_PATH}/osm/{provincie}_playgrounds.geojson", driver='GeoJSON')
+                df_provincie.to_file(f"{self.data_path}/osm/{provincie}_playgrounds.geojson", driver='GeoJSON')
 
-    def concat_geojsons(self, directory: str) -> gpd.GeoDataFrame:
-        """Combineer alle GeoJSON-bestanden in de gegeven map tot één
-        GeoDataFrame."""
-        files = os.listdir(directory)
 
-        # filter op GeoJSON-bestanden
-        geojson_files = [f for f in files if f.endswith('.geojson')]
+class SpeelplekkenParser():
+    """Filtert de landelijke bronnen op de gemeente-geometrie, voegt de
+    BGT-speelvoorzieningen toe, en cacht het resultaat per gemeente."""
 
-        # verzamel de losse GeoDataFrames
-        gdfs = []
+    def __init__(self, data_path: str = DATA_PATH) -> None:
+        self.data_path = data_path
 
-        for file in geojson_files:
-            file_path = os.path.join(directory, file)
-            gdf = gpd.read_file(file_path)
-            gdfs.append(gdf)
+    def parse(self, gemeente_code: str, geometry: BaseGeometry) -> gpd.GeoDataFrame:
+        """Retourneer de gecombineerde speelpleklocaties voor deze
+        gemeente. Bouwt de gecachte parquet wanneer die nog niet
+        bestaat."""
+        cache_pad = self._cache_pad(gemeente_code)
+        if os.path.exists(cache_pad):
+            return gpd.read_parquet(cache_pad)
+        return self._bouw_en_cache(gemeente_code, geometry)
 
-        # combineer tot één GeoDataFrame
-        return gpd.GeoDataFrame(pd.concat(gdfs, ignore_index=True))
+    def _bouw_en_cache(self, gemeente_code: str, geometry: BaseGeometry) -> gpd.GeoDataFrame:
+        """Combineer de drie bronnen tot één GeoDataFrame met
+        puntgeometrie en cache het resultaat als parquet."""
+        speelplekken_df = pd.concat([
+            self._buitenspeelkaart_binnen(geometry),
+            self._osm_binnen(geometry),
+            self._bgt_speelvoorzieningen(gemeente_code),
+        ], ignore_index=True)
+        speelplekken_df['geometry'] = speelplekken_df['geometry'].apply(_naar_punt)
 
-    def get_buitenspeelkaart(self) -> gpd.GeoDataFrame:
-        """Retourneer alle buitenspeelkaart-features (landelijk) als
-        één GeoDataFrame."""
-        return self.concat_geojsons(f"{DATA_PATH}/buitenspeelkaart/")
+        cache_pad = self._cache_pad(gemeente_code)
+        if 'processed' not in os.listdir(self.data_path):
+            os.mkdir(f"{self.data_path}/processed")
+            os.mkdir(f"{self.data_path}/processed/gemeenten")
+        if gemeente_code not in os.listdir(f"{self.data_path}/processed/gemeenten"):
+            os.mkdir(f"{self.data_path}/processed/gemeenten/{gemeente_code}")
+        speelplekken_df.to_parquet(cache_pad)
+        return speelplekken_df
 
-    def get_osm_playgrounds(self) -> gpd.GeoDataFrame:
-        """Retourneer alle OSM-speelplekken (landelijk) als één
-        GeoDataFrame."""
-        return self.concat_geojsons(f"{DATA_PATH}/osm/")
+    def _cache_pad(self, gemeente_code: str) -> str:
+        return f"{self.data_path}/processed/gemeenten/{gemeente_code}/speelplekken.parquet"
 
-    def _get_buitenspeelkaart(self) -> gpd.GeoDataFrame:
-        """Filter de buitenspeelkaart op features binnen de geometrie
-        van deze gemeente."""
-        df = self.get_buitenspeelkaart().to_crs(28992)
-        return df.loc[df.intersects(self.geometry)][['naam', 'geometry']]
+    def _buitenspeelkaart_binnen(self, geometry: BaseGeometry) -> gpd.GeoDataFrame:
+        """Filter de landelijke buitenspeelkaart op features binnen de
+        gegeven geometrie."""
+        df = _combineer_geojsons(f"{self.data_path}/buitenspeelkaart/").to_crs(28992)
+        return df.loc[df.intersects(geometry)][['naam', 'geometry']]
 
-    def _get_osm(self) -> gpd.GeoDataFrame:
-        """Filter de OSM-speelplekken op features binnen de geometrie
-        van deze gemeente."""
-        df = self.get_osm_playgrounds()
-        df = df.loc[df.intersects(self.geometry)]
+    def _osm_binnen(self, geometry: BaseGeometry) -> gpd.GeoDataFrame:
+        """Filter de landelijke OSM-speelplekken op features binnen de
+        gegeven geometrie."""
+        df = _combineer_geojsons(f"{self.data_path}/osm/")
+        df = df.loc[df.intersects(geometry)]
         df = df[['name', 'geometry']]
         df.rename(columns={'name': 'naam'}, inplace=True)
         return df
 
-    def _get_bgt(self) -> gpd.GeoDataFrame:
+    def _bgt_speelvoorzieningen(self, gemeente_code: str) -> gpd.GeoDataFrame:
         """Retourneer de speelvoorzieningen die door de BGT-adapter zijn
         afgezonderd voor deze gemeente."""
-        return gpd.read_parquet(f"{DATA_PATH}/bgt/gemeenten/{self.gemeente_code}_bgt_playgrounds_parsed.parquet")
+        return gpd.read_parquet(f"{self.data_path}/bgt/gemeenten/{gemeente_code}_bgt_playgrounds_parsed.parquet")
 
-    def _merge_speelplek_data(self) -> gpd.GeoDataFrame:
-        """Combineer de drie bronnen tot één GeoDataFrame met
-        puntgeometrie en cache het resultaat als parquet."""
-        def convert_to_point(geometry: BaseGeometry) -> BaseGeometry:
-            if geometry.geom_type == 'Point':
-                return geometry
-            else:
-                return geometry.representative_point()
 
-        speelplekken_df = pd.concat([
-            self._get_buitenspeelkaart(),
-            self._get_osm(),
-            self._get_bgt(),
-        ], ignore_index=True)
-        speelplekken_df['geometry'] = speelplekken_df['geometry'].apply(convert_to_point)
-        if 'processed' not in os.listdir(DATA_PATH):
-            os.mkdir(f"{DATA_PATH}/processed")
-            os.mkdir(f"{DATA_PATH}/processed/gemeenten")
-        if self.gemeente_code not in os.listdir(f"{DATA_PATH}/processed/gemeenten"):
-            os.mkdir(f"{DATA_PATH}/processed/gemeenten/{self.gemeente_code}")
-        speelplekken_df.to_parquet(f"{DATA_PATH}/processed/gemeenten/{self.gemeente_code}/speelplekken.parquet")
+def _combineer_geojsons(directory: str) -> gpd.GeoDataFrame:
+    """Combineer alle GeoJSON-bestanden in de gegeven map tot één
+    GeoDataFrame."""
+    geojson_files = [f for f in os.listdir(directory) if f.endswith('.geojson')]
+    gdfs = [gpd.read_file(os.path.join(directory, f)) for f in geojson_files]
+    return gpd.GeoDataFrame(pd.concat(gdfs, ignore_index=True))
 
-        return speelplekken_df
+
+def _naar_punt(geometry: BaseGeometry) -> BaseGeometry:
+    """Zet een geometrie om naar een representatief punt. Punten blijven
+    ongewijzigd."""
+    if geometry.geom_type == 'Point':
+        return geometry
+    return geometry.representative_point()
+
+
+class Speelplekken():
+    """Facade voor speelpleklocaties. Combineert downloader en parser
+    en implementeert ``SpeelplekkenPoort``.
+
+    Downloader en parser zijn te vervangen via de constructor voor
+    tests of alternatieve bronnen.
+    """
+
+    def __init__(
+        self,
+        gemeente_code: str,
+        geometry: BaseGeometry,
+        downloader: Optional[SpeelplekkenDownloader] = None,
+        parser: Optional[SpeelplekkenParser] = None,
+    ) -> None:
+        self.gemeente_code = gemeente_code
+        self.geometry = geometry
+        self._downloader = downloader or SpeelplekkenDownloader()
+        self._parser = parser or SpeelplekkenParser()
+        self._downloader.download_buitenspeelkaart()
+        self._downloader.download_osm_playgrounds()
 
     def get_alle(self) -> gpd.GeoDataFrame:
         """Retourneer de gecombineerde speelpleklocaties voor deze
-        gemeente. Bouwt de gecachte parquet wanneer die nog niet
-        bestaat."""
-        if os.path.exists(f"{DATA_PATH}/processed/gemeenten/{self.gemeente_code}/speelplekken.parquet"):
-            return gpd.read_parquet(f"{DATA_PATH}/processed/gemeenten/{self.gemeente_code}/speelplekken.parquet")
-        self._merge_speelplek_data()
-        return self.get_alle()
+        gemeente."""
+        return self._parser.parse(self.gemeente_code, self.geometry)

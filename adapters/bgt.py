@@ -1,6 +1,17 @@
 """Adapter voor de Basisregistratie Grootschalige Topografie (BGT) via
 PDOK. Downloadt en cachet BGT-features per gemeente en levert een
-gefilterde, geparsete GeoDataFrame."""
+gefilterde, geparsete GeoDataFrame.
+
+Opgesplitst in drie verantwoordelijkheden:
+
+- ``BgtDownloader``: haalt de zip via de asynchrone PDOK-API, pakt uit
+  en cacht de losse GML-bestanden op disk (I/O).
+- ``BgtParser``: leest de GML-bestanden, filtert straatmeubilair/erven,
+  splitst speelvoorzieningen af, en cacht per stap als parquet
+  (transformatie).
+- ``BGT``: facade die downloader en parser combineert en de
+  ``BgtPoort`` implementeert.
+"""
 import json
 import os
 import shutil
@@ -17,9 +28,6 @@ from instellingen import DATA_PATH
 
 from .utils import file_downloader, unzip_file
 
-# TODO: overweeg getters met filter op gemeente, zodat classes niet te zwaar worden
-# TODO: overweeg een flag om bestaande data te overschrijven
-
 DEFAULT_FEATURETYPES = [
     "begroeidterreindeel",
     "onbegroeidterreindeel",
@@ -31,36 +39,41 @@ DEFAULT_FEATURETYPES = [
 ]
 
 
-class BGT():
-    """Adapter voor BGT-features van één gemeente.
+class BgtDownloader():
+    """Downloadt BGT-features via de asynchrone PDOK-API en pakt de
+    zip uit tot losse GML-bestanden per featuretype. Idempotent."""
 
-    Bij instantiëring wordt de BGT-data gedownload en gecategoriseerd
-    wanneer die nog niet lokaal aanwezig is. De constructor triggert
-    ook alvast een parse-run zodat de parquet-cache klaar staat.
-    """
+    def __init__(self, data_path: str = DATA_PATH) -> None:
+        self.data_path = data_path
 
-    def __init__(self, gemeente_code: str, geometry: BaseGeometry) -> None:
-        self.gemeente_code = gemeente_code
-        self.geometry = geometry
-        self.download_features()
-        self.get_features()  # TODO wat vreemd, we doen niets met het resultaat
+    def zorg_voor_gmls(
+        self,
+        gemeente_code: str,
+        geometry: BaseGeometry,
+        featuretypes: Optional[list] = None,
+    ) -> None:
+        """Zorg dat de GML-bestanden voor deze gemeente op disk staan.
+        Doet niets wanneer de raw-parquet of de GML-map al bestaat."""
+        raw_parquet = f"{self.data_path}/bgt/gemeenten/{gemeente_code}_bgt_features.parquet"
+        gml_dir = f"{self.data_path}/bgt/gemeenten/{gemeente_code}"
+        if os.path.exists(raw_parquet) or os.path.exists(gml_dir):
+            return
+        if 'bgt' not in os.listdir(self.data_path):
+            os.mkdir(f"{self.data_path}/bgt")
+            os.mkdir(f"{self.data_path}/bgt/gemeenten")
+        zip_pad = f"{self.data_path}/bgt/{gemeente_code}.zip"
+        self._download_zip_via_api(zip_pad, self._bounding_box(geometry).wkt, featuretypes)
+        unzip_file(zip_pad, gml_dir)
+        os.remove(zip_pad)
 
-    def download_bgt(
+    def _download_zip_via_api(
         self,
         local_filename: str,
         geofilter: str,
         featuretypes: Optional[list] = None,
     ) -> None:
-        """Downloadt de tegels van de BGT-server en slaat de zip op als
-        ``local_filename``.
-
-        :param local_filename: bestandsnaam waaronder de gedownloade zip
-            wordt opgeslagen.
-        :param geofilter: een polygoon in WKT-formaat die het gebied
-            aangeeft waarvoor de BGT moet worden opgevraagd.
-        :param featuretypes: op te vragen featuretypes. Standaard alle
-            typen uit ``DEFAULT_FEATURETYPES``.
-        """
+        """Vraag de BGT-download aan via de asynchrone PDOK-API en
+        download de zip zodra beschikbaar."""
         if featuretypes is None:
             featuretypes = DEFAULT_FEATURETYPES
 
@@ -85,11 +98,10 @@ class BGT():
         if download_status.status_code == 201:
             file_downloader(f"{API_URL}{download_status.json()['_links']['download']['href']}", local_filename)
 
-    def _geometry_to_bounding_box(self, geometry: BaseGeometry) -> Polygon:
+    def _bounding_box(self, geometry: BaseGeometry) -> Polygon:
         """Retourneer de axis-aligned bounding box van de gegeven
         geometrie als een gesloten polygoon."""
         min_x, min_y, max_x, max_y = geometry.bounds
-
         return Polygon([
             (min_x, min_y),
             (max_x, min_y),
@@ -98,12 +110,62 @@ class BGT():
             (min_x, min_y),  # sluit de polygoon door het eerste punt te herhalen
         ])
 
-    def _load_feature(self, feature: str) -> gpd.GeoDataFrame:
+
+class BgtParser():
+    """Leest GML-bestanden of eerder gecachte parquets en levert de
+    gefilterde BGT-features als GeoDataFrame. Cacht tussenstappen."""
+
+    def __init__(self, data_path: str = DATA_PATH) -> None:
+        self.data_path = data_path
+
+    def parse(self, gemeente_code: str, featuretypes: Optional[list] = None) -> gpd.GeoDataFrame:
+        """Retourneer de gefilterde BGT-features voor deze gemeente.
+        Bouwt raw- en gefilterde parquet-caches wanneer die nog niet
+        bestaan."""
+        self._zorg_voor_raw_parquet(gemeente_code, featuretypes)
+        return self._zorg_voor_features_parquet(gemeente_code)
+
+    def _zorg_voor_raw_parquet(self, gemeente_code: str, featuretypes: Optional[list] = None) -> None:
+        """Combineer de losse GML-bestanden tot één parquet met alle
+        raw features. Verwijdert de GML-map na afloop."""
+        if featuretypes is None:
+            featuretypes = DEFAULT_FEATURETYPES
+
+        raw_parquet = f"{self.data_path}/bgt/gemeenten/{gemeente_code}_bgt_features.parquet"
+        if os.path.exists(raw_parquet):
+            return
+
+        dfs = [self._laad_feature_gml(gemeente_code, feature) for feature in featuretypes]
+        df = pd.concat(dfs, ignore_index=True)
+        df = df.loc[pd.isnull(df.eindRegistratie)]
+        df.to_parquet(raw_parquet)
+        shutil.rmtree(f"{self.data_path}/bgt/gemeenten/{gemeente_code}")
+
+    def _zorg_voor_features_parquet(self, gemeente_code: str) -> gpd.GeoDataFrame:
+        """Verwijder straatmeubilair en erven, splits speelvoorzieningen
+        af naar een aparte parquet, cache de opgeschoonde features en
+        retourneer ze."""
+        features_parquet = f"{self.data_path}/bgt/gemeenten/{gemeente_code}_bgt_features_parsed.parquet"
+        if os.path.exists(features_parquet):
+            return gpd.read_parquet(features_parquet)
+
+        bgt_gemeente = gpd.read_parquet(f"{self.data_path}/bgt/gemeenten/{gemeente_code}_bgt_features.parquet")
+        bgt_speel_df = bgt_gemeente.loc[bgt_gemeente["plus-type"] == "speelvoorziening"]
+        bgt_speel_df['naam'] = 'from_bgt'
+        bgt_speel_df = bgt_speel_df[['naam', 'geometry']]
+        bgt_gemeente = bgt_gemeente.loc[bgt_gemeente.file != 'straatmeubilair']
+        bgt_gemeente = bgt_gemeente.loc[bgt_gemeente['bgt-fysiekVoorkomen'] != 'erf']
+        bgt_gemeente = bgt_gemeente.drop(['opTalud'], axis=1)
+        bgt_gemeente.to_parquet(features_parquet)
+        bgt_speel_df.to_parquet(f"{self.data_path}/bgt/gemeenten/{gemeente_code}_bgt_playgrounds_parsed.parquet")
+        return bgt_gemeente
+
+    def _laad_feature_gml(self, gemeente_code: str, feature: str) -> gpd.GeoDataFrame:
         """Laad één BGT-featuretype uit het GML-bestand voor deze
         gemeente. Retourneert een leeg GeoDataFrame wanneer het bestand
         niet aanwezig is (bijv. omdat de gemeente dat featuretype niet
         heeft)."""
-        file_path = f"{DATA_PATH}/bgt/gemeenten/{self.gemeente_code}/bgt_{feature}.gml"
+        file_path = f"{self.data_path}/bgt/gemeenten/{gemeente_code}/bgt_{feature}.gml"
         if not os.path.exists(file_path):
             df = gpd.GeoDataFrame()
         else:
@@ -111,49 +173,29 @@ class BGT():
         df['file'] = feature
         return df
 
-    def download_features(self, features: Optional[list] = None) -> None:
-        """Download alle featuretypes voor deze gemeente, laad ze samen
-        en cache als parquet. Doet niets wanneer de cache al bestaat."""
-        if features is None:
-            features = DEFAULT_FEATURETYPES
 
-        if os.path.exists(f"{DATA_PATH}/bgt/gemeenten/{self.gemeente_code}_bgt_features.parquet"):
-            return
-        if 'bgt' not in os.listdir(DATA_PATH):
-            os.mkdir(f"{DATA_PATH}/bgt")
-            os.mkdir(f"{DATA_PATH}/bgt/gemeenten")
-        self.download_bgt(f"{DATA_PATH}/bgt/{self.gemeente_code}.zip", self._geometry_to_bounding_box(self.geometry).wkt)
-        unzip_file(f"{DATA_PATH}/bgt/{self.gemeente_code}.zip", f"{DATA_PATH}/bgt/gemeenten/{self.gemeente_code}")
-        os.remove(f"{DATA_PATH}/bgt/{self.gemeente_code}.zip")
+class BGT():
+    """Facade voor BGT-features van één gemeente. Combineert downloader
+    en parser en implementeert ``BgtPoort``.
 
-        dfs = [self._load_feature(feature) for feature in features]
-        df = pd.concat(dfs, ignore_index=True)
-        df = df.loc[pd.isnull(df.eindRegistratie)]
-        df.to_parquet(f"{DATA_PATH}/bgt/gemeenten/{self.gemeente_code}_bgt_features.parquet")
-        shutil.rmtree(f"{DATA_PATH}/bgt/gemeenten/{self.gemeente_code}")
+    Downloader en parser zijn te vervangen via de constructor voor
+    tests of alternatieve bronnen.
+    """
+
+    def __init__(
+        self,
+        gemeente_code: str,
+        geometry: BaseGeometry,
+        downloader: Optional[BgtDownloader] = None,
+        parser: Optional[BgtParser] = None,
+    ) -> None:
+        self.gemeente_code = gemeente_code
+        self.geometry = geometry
+        self._downloader = downloader or BgtDownloader()
+        self._parser = parser or BgtParser()
+        self._downloader.zorg_voor_gmls(gemeente_code, geometry)
 
     def get_features(self) -> gpd.GeoDataFrame:
         """Retourneer de gefilterde en gecategoriseerde BGT-features
-        voor deze gemeente. Triggert een download wanneer nog niet
-        gecached."""
-        if os.path.exists(f"{DATA_PATH}/bgt/gemeenten/{self.gemeente_code}_bgt_features.parquet"):
-            return self.parse_features()
-        self.download_features()
-        return self.get_features()
-
-    def parse_features(self) -> gpd.GeoDataFrame:
-        """Verwijder straatmeubilair en erven, splits speelvoorzieningen
-        af naar een aparte cache, en retourneer de opgeschoonde
-        BGT-features."""
-        if os.path.exists(f"{DATA_PATH}/bgt/gemeenten/{self.gemeente_code}_bgt_features_parsed.parquet"):
-            return gpd.read_parquet(f"{DATA_PATH}/bgt/gemeenten/{self.gemeente_code}_bgt_features_parsed.parquet")
-        bgt_gemeente = gpd.read_parquet(f"{DATA_PATH}/bgt/gemeenten/{self.gemeente_code}_bgt_features.parquet")
-        bgt_speel_df = bgt_gemeente.loc[bgt_gemeente["plus-type"] == "speelvoorziening"]
-        bgt_speel_df['naam'] = 'from_bgt'
-        bgt_speel_df = bgt_speel_df[['naam', 'geometry']]
-        bgt_gemeente = bgt_gemeente.loc[bgt_gemeente.file != 'straatmeubilair']
-        bgt_gemeente = bgt_gemeente.loc[bgt_gemeente['bgt-fysiekVoorkomen'] != 'erf']
-        bgt_gemeente = bgt_gemeente.drop(['opTalud'], axis=1)
-        bgt_gemeente.to_parquet(f"{DATA_PATH}/bgt/gemeenten/{self.gemeente_code}_bgt_features_parsed.parquet")
-        bgt_speel_df.to_parquet(f"{DATA_PATH}/bgt/gemeenten/{self.gemeente_code}_bgt_playgrounds_parsed.parquet")
-        return self.parse_features()
+        voor deze gemeente."""
+        return self._parser.parse(self.gemeente_code)

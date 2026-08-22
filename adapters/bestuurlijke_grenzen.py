@@ -1,6 +1,16 @@
 """Adapter voor Kadaster/CBS bestuurlijke grenzen (gemeenten en
 buurten) via PDOK. Retourneert domein-entiteiten (Gemeente, Buurt) in
-plaats van rauwe GeoDataFrames."""
+plaats van rauwe GeoDataFrames.
+
+Opgesplitst in drie verantwoordelijkheden:
+
+- ``BestuurlijkeGrenzenDownloader``: haalt de landelijke bronnen op en
+  cacht ze op disk (I/O).
+- ``BestuurlijkeGrenzenParser``: leest de gecachte bestanden en zet ze
+  om naar domein-entiteiten (transformatie).
+- ``BestuurlijkeGrenzen``: facade die downloader en parser combineert
+  en de ``BestuurlijkeGrenzenPoort`` implementeert.
+"""
 import os
 from typing import Optional
 
@@ -12,51 +22,53 @@ from instellingen import DATA_PATH
 from .utils import file_downloader, unzip_file
 
 
-class BestuurlijkeGrenzen():
-    """Adapter voor Kadaster/CBS bestuurlijke grenzen.
+class BestuurlijkeGrenzenDownloader():
+    """Downloadt de landelijke gemeente- en buurtgrenzen naar disk.
+    Idempotent: bestaande caches worden overgeslagen."""
 
-    Wordt geïnstantieerd voor één gemeente. Bij aanmaken wordt de
-    landelijke bron gedownload wanneer die nog niet lokaal beschikbaar
-    is.
-    """
-
-    def __init__(self, gemeente_code: Optional[str] = None) -> None:
-        self.download_gemeente_grenzen()
-        self.download_buurt_grenzen()
-        self.gemeente_code = gemeente_code
-
-    def download_buurt_grenzen(self, layer: str = "buurten") -> None:
-        """Download de landelijke wijk- en buurtgrenzen van CBS/PDOK
-        wanneer die nog niet lokaal aanwezig zijn."""
-        if not os.path.exists(f"{DATA_PATH}/bestuurlijkegrenzen/{layer}"):
-            print("Download gestart")
-            os.mkdir(f"{DATA_PATH}/bestuurlijkegrenzen/{layer}")
-            df = gpd.read_file("https://service.pdok.nl/cbs/wijkenbuurten/2024/atom/downloads/wijkenbuurten_2024.gpkg", layer=layer)
-            df.to_parquet(f"{DATA_PATH}/bestuurlijkegrenzen/{layer}/grenzen.parquet")
+    def __init__(self, data_path: str = DATA_PATH) -> None:
+        self.data_path = data_path
 
     def download_gemeente_grenzen(self) -> None:
         """Download de landelijke gemeentegrenzen (administrative units)
         van Kadaster/PDOK wanneer die nog niet lokaal aanwezig zijn."""
-        if not os.path.exists(f"{DATA_PATH}/bestuurlijkegrenzen/gemeenten"):
-            file_downloader("https://service.pdok.nl/kadaster/au/atom/v2_0/downloads/administrativeunits.zip", "administrativeunits.zip")
-            unzip_file(f"{DATA_PATH}/administrativeunits.zip", f"{DATA_PATH}/bestuurlijkegrenzen/gemeenten")
-            os.remove(f"{DATA_PATH}/administrativeunits.zip")
+        if not os.path.exists(f"{self.data_path}/bestuurlijkegrenzen/gemeenten"):
+            file_downloader(
+                "https://service.pdok.nl/kadaster/au/atom/v2_0/downloads/administrativeunits.zip",
+                "administrativeunits.zip",
+            )
+            unzip_file(
+                f"{self.data_path}/administrativeunits.zip",
+                f"{self.data_path}/bestuurlijkegrenzen/gemeenten",
+            )
+            os.remove(f"{self.data_path}/administrativeunits.zip")
 
-    def get_gemeenten(self) -> gpd.GeoDataFrame:
-        """Retourneer alle gemeenten als rauwe GeoDataFrame uit het
-        administrative-units GML-bestand. Bedoeld voor intern gebruik;
-        gebruik ``get_gemeente()`` voor één gemeente als
+    def download_buurt_grenzen(self, layer: str = "buurten") -> None:
+        """Download de landelijke wijk- en buurtgrenzen van CBS/PDOK
+        wanneer die nog niet lokaal aanwezig zijn."""
+        if not os.path.exists(f"{self.data_path}/bestuurlijkegrenzen/{layer}"):
+            print("Download gestart")
+            os.mkdir(f"{self.data_path}/bestuurlijkegrenzen/{layer}")
+            df = gpd.read_file(
+                "https://service.pdok.nl/cbs/wijkenbuurten/2024/atom/downloads/wijkenbuurten_2024.gpkg",
+                layer=layer,
+            )
+            df.to_parquet(f"{self.data_path}/bestuurlijkegrenzen/{layer}/grenzen.parquet")
+
+
+class BestuurlijkeGrenzenParser():
+    """Leest de gecachte bestanden en zet ze om naar domein-entiteiten.
+    Doet geen I/O naar externe bronnen; wel disk-reads uit de cache."""
+
+    def __init__(self, data_path: str = DATA_PATH) -> None:
+        self.data_path = data_path
+
+    def parse_gemeente(self, gemeente_code: str) -> Gemeente:
+        """Retourneer de gemeente voor ``gemeente_code`` als
         domein-entiteit."""
-        df_adm = gpd.read_file(f"{DATA_PATH}/bestuurlijkegrenzen/gemeenten/administrativeunits.gml", layer="AdministrativeUnit")
-        return df_adm
-
-    def get_gemeente(self) -> Gemeente:
-        """Retourneer de gemeente waarvoor deze adapter is
-        geïnstantieerd als domein-entiteit."""
-        if self.gemeente_code is None:
-            raise ValueError("gemeente_code is niet gezet op deze adapter")
-        df_adm = self.parse_gemeenten(self.get_gemeenten())
-        rij = df_adm.loc[df_adm.localId == self.gemeente_code].iloc[0]
+        df_adm = self._laad_alle_gemeenten()
+        df_adm = self._normaliseer_gemeenten(df_adm)
+        rij = df_adm.loc[df_adm.localId == gemeente_code].iloc[0]
         return Gemeente(
             code=rij['localId'],
             naam=rij['gemeente'],
@@ -64,13 +76,11 @@ class BestuurlijkeGrenzen():
             geometrie=rij['geometry'],
         )
 
-    def get_buurten(self) -> list[Buurt]:
-        """Retourneer alle buurten binnen deze gemeente als lijst van
-        domein-entiteiten."""
-        if self.gemeente_code is None:
-            raise ValueError("gemeente_code is niet gezet op deze adapter")
-        df = gpd.read_parquet(f"{DATA_PATH}/bestuurlijkegrenzen/buurten/grenzen.parquet")
-        df = df.loc[df.gemeentecode == self.gemeente_code]
+    def parse_buurten(self, gemeente_code: str) -> list[Buurt]:
+        """Retourneer alle buurten binnen ``gemeente_code`` als lijst
+        van domein-entiteiten."""
+        df = gpd.read_parquet(f"{self.data_path}/bestuurlijkegrenzen/buurten/grenzen.parquet")
+        df = df.loc[df.gemeentecode == gemeente_code]
         return [
             Buurt(
                 code=rij['buurtcode'],
@@ -82,10 +92,17 @@ class BestuurlijkeGrenzen():
             for _, rij in df.iterrows()
         ]
 
-    def parse_gemeenten(self, df_adm: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
+    def _laad_alle_gemeenten(self) -> gpd.GeoDataFrame:
+        """Lees de rauwe administrative-units GML in."""
+        return gpd.read_file(
+            f"{self.data_path}/bestuurlijkegrenzen/gemeenten/administrativeunits.gml",
+            layer="AdministrativeUnit",
+        )
+
+    def _normaliseer_gemeenten(self, df_adm: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
         """Zet de rauwe administrative-units DataFrame om naar een
         DataFrame met per gemeente de kolommen ``gemeente``, ``localId``,
-        ``provincie`` en ``geometry``, en herprojecteer naar RD-New."""
+        ``provincie`` en ``geometry``, herprojecteert naar RD-New."""
         df_adm_prov = df_adm.loc[df_adm.LocalisedCharacterString == "Provincie"]
         df_adm_prov = df_adm_prov[['text', 'geometry']]
         df_adm_prov.rename(columns={'text': 'provincie'}, inplace=True)
@@ -96,3 +113,38 @@ class BestuurlijkeGrenzen():
         # Maasdriel valt geometrisch niet netjes binnen één provincie; hard vaststellen op Gelderland.
         gemeenten_in_provincies.loc[gemeenten_in_provincies.gemeente == "Maasdriel", 'provincie'] = "Gelderland"
         return gemeenten_in_provincies[['gemeente', "localId", 'provincie', 'geometry']].to_crs(28992)
+
+
+class BestuurlijkeGrenzen():
+    """Facade voor Kadaster/CBS bestuurlijke grenzen. Combineert
+    downloader en parser en implementeert ``BestuurlijkeGrenzenPoort``.
+
+    Downloader en parser zijn te vervangen via de constructor voor
+    tests of alternatieve bronnen.
+    """
+
+    def __init__(
+        self,
+        gemeente_code: Optional[str] = None,
+        downloader: Optional[BestuurlijkeGrenzenDownloader] = None,
+        parser: Optional[BestuurlijkeGrenzenParser] = None,
+    ) -> None:
+        self.gemeente_code = gemeente_code
+        self._downloader = downloader or BestuurlijkeGrenzenDownloader()
+        self._parser = parser or BestuurlijkeGrenzenParser()
+        self._downloader.download_gemeente_grenzen()
+        self._downloader.download_buurt_grenzen()
+
+    def get_gemeente(self) -> Gemeente:
+        """Retourneer de gemeente waarvoor deze adapter is
+        geïnstantieerd als domein-entiteit."""
+        if self.gemeente_code is None:
+            raise ValueError("gemeente_code is niet gezet op deze adapter")
+        return self._parser.parse_gemeente(self.gemeente_code)
+
+    def get_buurten(self) -> list[Buurt]:
+        """Retourneer alle buurten binnen deze gemeente als lijst van
+        domein-entiteiten."""
+        if self.gemeente_code is None:
+            raise ValueError("gemeente_code is niet gezet op deze adapter")
+        return self._parser.parse_buurten(self.gemeente_code)
