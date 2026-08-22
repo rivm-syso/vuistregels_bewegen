@@ -4,33 +4,59 @@ Voorbeelden::
 
     python -m cli bereken beweegvriendelijk GM1680
     vuistregels bereken beweegvriendelijk GM1680  # na `pip install -e .`
-    vuistregels bereken beweegvriendelijk GM1680 --uit resultaat.csv
+    vuistregels bereken beweegvriendelijk GM1680 GM0518 --workers 4 --uit resultaat.csv
+    vuistregels bereken beweegvriendelijk --gemeenten-csv gemeenten.csv --uit resultaat.csv
 """
 import argparse
 import logging
 from typing import Optional
 
+import pandas as pd
+
 from usecases.bereken_oppervlakte_beweegvriendelijk import (
-    bereken_beweegvriendelijkheid,
+    bereken_beweegvriendelijkheid_voor_gemeenten,
     naar_dataframe,
 )
 
 
 def _cmd_bereken_beweegvriendelijk(args: argparse.Namespace) -> None:
-    """Voer de use case ``bereken_beweegvriendelijkheid`` uit en toon
-    of schrijf het resultaat weg."""
-    resultaten = bereken_beweegvriendelijkheid(args.gemeente_code)
+    """Voer de use case uit voor een of meer gemeenten en toon of
+    schrijf het resultaat weg."""
+    codes = _verzamel_gemeente_codes(args.gemeente_codes, args.gemeenten_csv)
+    resultaten = bereken_beweegvriendelijkheid_voor_gemeenten(codes, workers=args.workers)
     if args.uit:
         df = naar_dataframe(resultaten)
         if args.uit.endswith(".parquet"):
             df.to_parquet(args.uit)
         else:
             df.to_csv(args.uit, index=False)
-        print(f"Resultaat opgeslagen naar {args.uit}")
+        print(f"Resultaat opgeslagen naar {args.uit} ({len(resultaten)} buurten uit {len(codes)} gemeente(n))")
     else:
-        print(f"{'buurtnaam':35s}  {'rec_total':>12s}  {'rec_actief':>12s}")
+        print(f"{'gemeentecode':13s}  {'buurtnaam':35s}  {'rec_total':>12s}  {'rec_actief':>12s}")
         for r in resultaten[:20]:
-            print(f"{r.buurt.naam:35s}  {r.absoluut_m2['rec_total']:12.6e}  {r.absoluut_m2['rec_actief']:12.6f}")
+            print(f"{r.buurt.gemeentecode:13s}  {r.buurt.naam:35s}  {r.absoluut_m2['rec_total']:12.6e}  {r.absoluut_m2['rec_actief']:12.6f}")
+
+
+def _verzamel_gemeente_codes(positional: list, csv_pad: Optional[str]) -> list[str]:
+    """Combineer gemeente-codes uit positional args en optionele CSV
+    tot een gededupliceerde lijst met behoud van volgorde."""
+    codes = list(positional or [])
+    if csv_pad:
+        codes.extend(_lees_gemeenten_csv(csv_pad))
+    if not codes:
+        raise ValueError("geen gemeente-codes opgegeven (positional of via --gemeenten-csv)")
+    return list(dict.fromkeys(codes))
+
+
+def _lees_gemeenten_csv(pad: str) -> list[str]:
+    """Lees een CSV met kolom ``gemeente_code`` en retourneer de codes
+    als lijst. De separator wordt auto-gedetecteerd."""
+    df = pd.read_csv(pad, sep=None, engine="python")
+    if "gemeente_code" not in df.columns:
+        raise ValueError(
+            f"CSV mist kolom 'gemeente_code'. Gevonden kolommen: {list(df.columns)}."
+        )
+    return [str(c) for c in df["gemeente_code"].tolist()]
 
 
 def bouw_parser() -> argparse.ArgumentParser:
@@ -49,11 +75,22 @@ def bouw_parser() -> argparse.ArgumentParser:
 
     bw = bereken_sub.add_parser(
         "beweegvriendelijk",
-        help="Oppervlakte-verdeling van beweegvriendelijke ruimte per buurt.",
+        help="Oppervlakte-verdeling van beweegvriendelijke ruimte per buurt (voor een of meer gemeenten).",
     )
     bw.add_argument(
-        "gemeente_code",
-        help="Gemeentecode inclusief prefix, bijv. GM1680.",
+        "gemeente_codes",
+        nargs="*",
+        help="Een of meer gemeentecodes inclusief prefix, bijv. GM1680 GM0518.",
+    )
+    bw.add_argument(
+        "--gemeenten-csv",
+        help="Optioneel pad naar CSV met kolom 'gemeente_code'; aanvullend op positional args.",
+    )
+    bw.add_argument(
+        "--workers",
+        type=int,
+        default=None,
+        help="Aantal parallelle workers (standaard: aantal CPU-cores; 1 = serieel).",
     )
     bw.add_argument(
         "--uit",

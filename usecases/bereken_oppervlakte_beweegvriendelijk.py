@@ -9,6 +9,7 @@ gecategoriseerd. De ratio's per buurt worden berekend met
 over onbegroeidterreindeel-verharding) niet dubbel tellen.
 """
 import logging
+from concurrent.futures import ProcessPoolExecutor
 from typing import Any, Iterable, Optional
 
 import geopandas as gpd
@@ -253,6 +254,41 @@ def _dataframe_naar_resultaten(
             relatief_aandeel={k: float(relatief_rij[k]) for k in feature_kolommen},
         ))
     return resultaten
+
+
+def bereken_beweegvriendelijkheid_voor_gemeenten(
+    gemeente_codes: list[str],
+    workers: Optional[int] = None,
+    **adapter_kwargs: Any,
+) -> list[BeweegvriendelijkheidPerBuurt]:
+    """Bereken de oppervlakte-verdeling voor meerdere gemeenten en
+    combineer de resultaten tot één lijst.
+
+    :param gemeente_codes: lijst van gemeentecodes inclusief prefix.
+    :param workers: aantal parallelle processen. ``None`` gebruikt alle
+        beschikbare CPU-cores; ``1`` forceert serieel. Bij aanwezige
+        ``adapter_kwargs`` (dependency injection, bijv. tests) wordt
+        altijd serieel gedraaid omdat fakes typisch niet picklebaar
+        zijn.
+    :param adapter_kwargs: extra keyword-argumenten voor
+        ``bereken_beweegvriendelijkheid`` (worden alleen doorgegeven in
+        het seriele pad).
+    :returns: samengevoegde lijst van ``BeweegvriendelijkheidPerBuurt``
+        over alle gemeenten.
+    """
+    unieke_codes = list(dict.fromkeys(gemeente_codes))
+
+    if workers == 1 or adapter_kwargs:
+        resultaten: list[BeweegvriendelijkheidPerBuurt] = []
+        for code in unieke_codes:
+            resultaten.extend(bereken_beweegvriendelijkheid(code, **adapter_kwargs))
+        return resultaten
+
+    logger.info("Parallelle berekening voor %d gemeente(n): %s",
+                len(unieke_codes), ", ".join(unieke_codes))
+    with ProcessPoolExecutor(max_workers=workers) as pool:
+        deelresultaten = pool.map(bereken_beweegvriendelijkheid, unieke_codes)
+    return [r for lijst in deelresultaten for r in lijst]
 
 
 def naar_dataframe(resultaten: list[BeweegvriendelijkheidPerBuurt]) -> pd.DataFrame:

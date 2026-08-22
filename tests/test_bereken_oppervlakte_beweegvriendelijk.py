@@ -13,6 +13,7 @@ from usecases.bereken_oppervlakte_beweegvriendelijk import (
     _bevat_punt,
     _union_area,
     bereken_beweegvriendelijkheid,
+    bereken_beweegvriendelijkheid_voor_gemeenten,
     naar_dataframe,
 )
 
@@ -187,3 +188,32 @@ def test_naar_dataframe_produceert_long_format():
 def test_naar_dataframe_op_lege_lijst_geeft_lege_dataframe():
     df = naar_dataframe([])
     assert df.empty
+
+
+# --- bereken_beweegvriendelijkheid_voor_gemeenten --------------------
+
+def test_voor_gemeenten_combineert_resultaten_van_meerdere_gemeenten():
+    resultaten = bereken_beweegvriendelijkheid_voor_gemeenten(
+        ["GM9999", "GM9998"],
+        workers=1,  # serieel; kwargs met fakes zijn niet picklebaar
+        grenzen_klasse=_FakeBestuurlijkeGrenzen,
+        bgt_klasse=_FakeBGT,
+        speelplekken_klasse=_FakeSpeelplekken,
+    )
+
+    # Twee gemeenten, elk één buurt uit de fake -> twee resultaten
+    assert len(resultaten) == 2
+    gemeenten = {r.buurt.gemeentecode for r in resultaten}
+    assert gemeenten == {"GM9999", "GM9998"}
+
+
+def test_voor_gemeenten_dedupliceert_input():
+    resultaten = bereken_beweegvriendelijkheid_voor_gemeenten(
+        ["GM9999", "GM9999", "GM9998"],
+        workers=1,
+        grenzen_klasse=_FakeBestuurlijkeGrenzen,
+        bgt_klasse=_FakeBGT,
+        speelplekken_klasse=_FakeSpeelplekken,
+    )
+    # Ondanks driemaal input: alleen twee unieke gemeenten in output
+    assert len(resultaten) == 2
