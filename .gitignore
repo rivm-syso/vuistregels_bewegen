@@ -1,0 +1,28 @@
+# Python bytecode
+__pycache__/
+*.py[cod]
+*.egg-info/
+
+# Virtual envs
+.venv/
+venv/
+
+# Secrets
+.env
+
+# Data (grote downloads, komt via de adapters)
+data/
+
+# Losse zips die tijdens downloads worden aangemaakt
+*.zip
+
+# Notebooks (checkpoints)
+.ipynb_checkpoints/
+
+# IDE
+.vscode/
+.idea/
+
+# Build artefacten
+build/
+dist/

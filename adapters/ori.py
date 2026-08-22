@@ -1,0 +1,62 @@
+import requests
+import geopandas as gpd
+import pandas as pd
+import os
+import zipfile
+
+from instellingen import DATA_PATH
+
+# pip install pyarrow
+class ORI():
+    def __init__(self):
+        self.download_rudifun()
+
+    def download_rudifun(self):
+        url = "https://dataportaal.pbl.nl/data/RUDIFUN/RUDIFUN_2024/NL_Rudifun2024_fgdb.zip"
+        target_dir = f"{DATA_PATH}/rudifun"
+        gdb_path = os.path.join(target_dir, "buurt2024.parquet")
+        zip_path = os.path.join(target_dir, "NL_Rudifun2024_fgdb.zip")
+
+        # bestaat het .gdb-bestand al?
+        if not os.path.exists(gdb_path):
+            os.makedirs(target_dir, exist_ok=True)
+            # download het bestand
+            print("Zip wordt gedownload...")
+            with requests.get(url, stream=True) as r:
+                r.raise_for_status()
+                with open(zip_path, "wb") as f:
+                    for chunk in r.iter_content(chunk_size=8192):
+                        f.write(chunk)
+            print("Download voltooid.")
+
+            # uitpakken
+            print("Uitpakken...")
+            with zipfile.ZipFile(zip_path, 'r') as zip_ref:
+                zip_ref.extractall(target_dir)
+            print("Uitgepakt.")
+
+            df = gpd.read_file(f"{DATA_PATH}/rudifun/Rudifun_2024_nl.gdb", layer='nl2_03_Basis_Buurt')
+            df.drop('geometry', axis=1, inplace=True)
+            df = df.rename(columns={"BU_CODE": "buurtcode"})
+            df.to_parquet(f"{DATA_PATH}/rudifun/buurt2024.parquet")
+
+            keep_file = "buurt2024.parquet"
+            self._empty_dir_except(target_dir, keep_file)
+            print("Klaar.")
+        else:
+            print("Bestand bestaat al, download en uitpakken overgeslagen.")
+
+    def _empty_dir_except(self, target_dir, keep_file):
+        for fname in os.listdir(target_dir):
+                file_path = os.path.join(target_dir, fname)
+                if fname != keep_file:
+                    # verwijder alleen bestanden, geen directories
+                    if os.path.isfile(file_path):
+                        os.remove(file_path)
+                    # als je ook directories wilt verwijderen:
+                    elif os.path.isdir(file_path):
+                        import shutil
+                        shutil.rmtree(file_path)
+
+    def get_rudifun(self):
+        return pd.read_parquet(f"{DATA_PATH}/rudifun/buurt2024.parquet")
