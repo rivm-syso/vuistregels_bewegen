@@ -1,0 +1,55 @@
+"""Poorten (Protocols) die de interface tussen use cases en adapters
+formaliseren. Adapters die deze Protocols implementeren zijn duck-typed
+compatibel; expliciete inheritance is niet nodig.
+
+Kleine, gefinaliseerde objecten (Gemeente, Buurt) worden retourneerd
+als domein-entiteiten. Grote feature-verzamelingen blijven
+GeoDataFrames.
+"""
+from typing import Optional, Protocol
+
+from geopandas import GeoDataFrame
+from shapely.geometry.base import BaseGeometry
+
+from .entiteiten import Buurt, Gemeente
+
+
+class BestuurlijkeGrenzenPoort(Protocol):
+    """Bron van gemeente- en buurtgrenzen."""
+
+    def get_gemeente(self) -> Gemeente:
+        """Haal de gemeente op waarvoor deze adapter is geïnstantieerd."""
+        ...
+
+    def get_buurten(self) -> list[Buurt]:
+        """Haal alle buurten binnen deze gemeente op."""
+        ...
+
+
+class BgtPoort(Protocol):
+    """Bron van BGT-features (verharding, groen, water, wegen, etc.)
+    voor één gemeente."""
+
+    def get_gemeente(self) -> GeoDataFrame:
+        """Retourneer de gefilterde en gecategoriseerde BGT-features
+        voor deze gemeente."""
+        ...
+
+
+class SpeelplekkenPoort(Protocol):
+    """Bron van speelpleklocaties (samengevoegd uit Buitenspeelkaart,
+    OSM en BGT)."""
+
+    def get_alle(self, gemeente_code: str, geometrie: BaseGeometry) -> GeoDataFrame:
+        """Retourneer de speelpleklocaties binnen de gegeven geometrie
+        voor de gegeven gemeente."""
+        ...
+
+
+class BuitensportenPoort(Protocol):
+    """Bron van buitensport-voorzieningen (Mulier DSA-portaal)."""
+
+    def get_buitensporten(self) -> Optional[GeoDataFrame]:
+        """Retourneer de buitensport-voorzieningen voor deze gemeente,
+        of ``None`` wanneer geen bron beschikbaar is."""
+        ...

@@ -1,8 +1,15 @@
-import requests
+"""Hulpmiddelen die door meerdere adapters worden gebruikt: HTTP-
+download naar disk en zip-extractie."""
 import os
 import zipfile
 
-def file_downloader(url, local_filename):
+import requests
+
+
+def file_downloader(url: str, local_filename: str) -> None:
+    """Download het bestand op ``url`` en sla het op als
+    ``local_filename``. Streamt in blokken van 8 KiB om geheugengebruik
+    beperkt te houden."""
     try:
         with requests.get(url, stream=True) as response:
             response.raise_for_status()  # controleer of de download succesvol was
@@ -13,7 +20,11 @@ def file_downloader(url, local_filename):
     except requests.exceptions.RequestException as e:
         print(f"Er is een fout opgetreden: {e}")
 
-def unzip_file(zip_file_path, extract_to_dir):
+
+def unzip_file(zip_file_path: str, extract_to_dir: str) -> None:
+    """Pak het ZIP-bestand op ``zip_file_path`` uit in
+    ``extract_to_dir``. Maakt de doelmap aan als die nog niet
+    bestaat."""
     # zorg dat de doelmap bestaat
     os.makedirs(extract_to_dir, exist_ok=True)
 

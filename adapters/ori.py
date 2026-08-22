@@ -1,26 +1,34 @@
-import requests
+"""Adapter voor RUDIFUN (PBL) buurt-kenmerken: dichtheden, functies,
+oppervlakten. Wordt in de huidige use case nog niet actief gebruikt."""
+import os
+import shutil
+import zipfile
+
 import geopandas as gpd
 import pandas as pd
-import os
-import zipfile
+import requests
 
 from instellingen import DATA_PATH
 
-# pip install pyarrow
+
 class ORI():
-    def __init__(self):
+    """Adapter voor RUDIFUN-buurtdata. Bij instantiëring wordt de
+    landelijke bron gedownload wanneer die nog niet lokaal aanwezig
+    is."""
+
+    def __init__(self) -> None:
         self.download_rudifun()
 
-    def download_rudifun(self):
+    def download_rudifun(self) -> None:
+        """Download de RUDIFUN-2024 GDB, extract de buurtlaag naar een
+        parquet-cache, en verwijder de overige uitgepakte bestanden."""
         url = "https://dataportaal.pbl.nl/data/RUDIFUN/RUDIFUN_2024/NL_Rudifun2024_fgdb.zip"
         target_dir = f"{DATA_PATH}/rudifun"
         gdb_path = os.path.join(target_dir, "buurt2024.parquet")
         zip_path = os.path.join(target_dir, "NL_Rudifun2024_fgdb.zip")
 
-        # bestaat het .gdb-bestand al?
         if not os.path.exists(gdb_path):
             os.makedirs(target_dir, exist_ok=True)
-            # download het bestand
             print("Zip wordt gedownload...")
             with requests.get(url, stream=True) as r:
                 r.raise_for_status()
@@ -29,7 +37,6 @@ class ORI():
                         f.write(chunk)
             print("Download voltooid.")
 
-            # uitpakken
             print("Uitpakken...")
             with zipfile.ZipFile(zip_path, 'r') as zip_ref:
                 zip_ref.extractall(target_dir)
@@ -46,17 +53,19 @@ class ORI():
         else:
             print("Bestand bestaat al, download en uitpakken overgeslagen.")
 
-    def _empty_dir_except(self, target_dir, keep_file):
+    def _empty_dir_except(self, target_dir: str, keep_file: str) -> None:
+        """Verwijder alle bestanden en submappen in ``target_dir``
+        behalve ``keep_file``."""
         for fname in os.listdir(target_dir):
-                file_path = os.path.join(target_dir, fname)
-                if fname != keep_file:
-                    # verwijder alleen bestanden, geen directories
-                    if os.path.isfile(file_path):
-                        os.remove(file_path)
-                    # als je ook directories wilt verwijderen:
-                    elif os.path.isdir(file_path):
-                        import shutil
-                        shutil.rmtree(file_path)
+            file_path = os.path.join(target_dir, fname)
+            if fname != keep_file:
+                if os.path.isfile(file_path):
+                    os.remove(file_path)
+                elif os.path.isdir(file_path):
+                    shutil.rmtree(file_path)
 
-    def get_rudifun(self):
+    def get_rudifun(self) -> pd.DataFrame:
+        """Retourneer de RUDIFUN-buurtdata als DataFrame (zonder
+        geometrie; join op ``buurtcode`` met een andere bron voor
+        geometrische context)."""
         return pd.read_parquet(f"{DATA_PATH}/rudifun/buurt2024.parquet")

@@ -21,8 +21,9 @@ Zonder installatie werkt het ook direct vanuit de root:
 
 ## Conventies
 
-Voertaal: **hybride NL/EN**. De regels zijn strikt — nieuwe code hoort
-er direct aan te voldoen, bestaande code wordt bij aanraken meegetrokken.
+Voertaal: **hybride NL/EN**. De regels zijn strikt: nieuwe code hoort
+er direct aan te voldoen, bestaande code wordt bij aanraken
+meegetrokken.
 
 ### Nederlands
 
@@ -38,15 +39,16 @@ er direct aan te voldoen, bestaande code wordt bij aanraken meegetrokken.
 - **Code-mechanica** die niet domeinspecifiek is: `load_`, `get_`,
   `parse_`, `download_`, `fetch_`, `save_`, `build_`, `__init__`,
   `__main__`.
-- **Type-namen** uit libraries (`GeoDataFrame`, `Polygon`) — niet
+- **Type-namen** uit libraries (`GeoDataFrame`, `Polygon`): niet
   vertalen.
-- **Britse spelling** (`initialise`, `centre`, `colour`) — niet
+- **Britse spelling** (`initialise`, `centre`, `colour`): niet
   Amerikaans.
 
 ### Casing
 
 - Classes: `PascalCase` (`BestuurlijkeGrenzen`, niet
-  `Bestuurlijkegrenzen`). Meerdere woorden = meerdere hoofdletters.
+  `Bestuurlijkegrenzen`). Meerdere woorden betekent meerdere
+  hoofdletters.
 - Acroniemen als één blok (`BGT`, `DSA`, `ORI`, `API_URL`).
 - Functies en variabelen: `snake_case`.
 - Constanten: `UPPER_SNAKE_CASE`.

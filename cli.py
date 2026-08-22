@@ -1,18 +1,22 @@
 """Command-line interface voor de vuistregels-repo.
 
-Voorbeelden:
+Voorbeelden::
+
     python -m cli bereken beweegvriendelijk GM1680
     vuistregels bereken beweegvriendelijk GM1680  # na `pip install -e .`
     vuistregels bereken beweegvriendelijk GM1680 --uit resultaat.csv
 """
 import argparse
+from typing import Optional
 
 from usecases.bereken_oppervlakte_beweegvriendelijk import (
     bereken_beweegvriendelijkheid,
 )
 
 
-def _cmd_bereken_beweegvriendelijk(args):
+def _cmd_bereken_beweegvriendelijk(args: argparse.Namespace) -> None:
+    """Voer de use case ``bereken_beweegvriendelijkheid`` uit en toon
+    of schrijf het resultaat weg."""
     df = bereken_beweegvriendelijkheid(args.gemeente_code)
     if args.uit:
         if args.uit.endswith(".parquet"):
@@ -31,7 +35,8 @@ def _cmd_bereken_beweegvriendelijk(args):
         )
 
 
-def bouw_parser():
+def bouw_parser() -> argparse.ArgumentParser:
+    """Bouw de argparse-parser met alle subcommando's."""
     parser = argparse.ArgumentParser(
         prog="vuistregels",
         description="Vuistregels voor beweegvriendelijke buitenruimte per gemeente/buurt.",
@@ -61,7 +66,9 @@ def bouw_parser():
     return parser
 
 
-def main(argv=None):
+def main(argv: Optional[list] = None) -> None:
+    """Entry point van de CLI. Parseer argumenten en dispatch naar het
+    juiste subcommando."""
     parser = bouw_parser()
     args = parser.parse_args(argv)
     args.func(args)

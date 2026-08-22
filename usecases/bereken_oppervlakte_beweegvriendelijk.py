@@ -1,8 +1,23 @@
-from usecases.initialiseer_data import load_and_initialise_gemeente_data
+"""Use case: bereken per buurt de oppervlakte-verdeling van BGT-features
+naar categorieën (auto, fiets, groen, water, spelen, buitensport, etc.)
+en aggregeer naar rec_features die aangeven hoeveel ruimte
+beweegvriendelijk is.
+
+De structure-tabellen bovenaan bepalen hoe elke BGT-feature wordt
+gecategoriseerd. De ratio's per buurt worden berekend met
+``unary_union`` zodat overlappende features (bijv. wegdeel-parkeervlak
+over onbegroeidterreindeel-verharding) niet dubbel tellen.
+"""
+from typing import Any, Iterable, Optional
+
 import geopandas as gpd
 import pandas as pd
 from shapely import errors as se
+from shapely.geometry.base import BaseGeometry
 from shapely.ops import unary_union
+
+from domein.entiteiten import Buurt
+from usecases.initialiseer_data import load_and_initialise_gemeente_data
 
 structure_begroeidterreindeel = [
     {'column': 'bgt-fysiekVoorkomen',
@@ -145,7 +160,9 @@ structure = [
     {'feature_layer': 'wegdeel', 'steps': structure_wegdeel},
 ]
 
-def _casewhen(df, structure):
+def _casewhen(df: gpd.GeoDataFrame, structure: dict) -> gpd.GeoDataFrame:
+    """Voeg categorie- en subcategoriekolommen toe aan ``df`` op basis
+    van de regels in ``structure`` (per BGT-featurelaag)."""
     feature_layer = structure['feature_layer']
     for step in structure['steps']:
         outcome_col = step['type']
@@ -156,8 +173,16 @@ def _casewhen(df, structure):
             df.loc[df[outcome_col].isnull() & df.file.isin([feature_layer]), outcome_col] = step['to']
     return df
 
-def feature_engineering(df, df_speelplekken, df_buitensporten, structure=structure):
-    def check_presence(polygon, df_points=df_speelplekken):
+
+def feature_engineering(
+    df: gpd.GeoDataFrame,
+    df_speelplekken: Optional[gpd.GeoDataFrame],
+    df_buitensporten: Optional[gpd.GeoDataFrame],
+    structure: list = structure,
+) -> gpd.GeoDataFrame:
+    """Voeg per BGT-feature de kolommen ``categorie``, ``subcategorie``,
+    ``speelplekken`` en ``buitensporten`` toe."""
+    def check_presence(polygon: BaseGeometry, df_points=df_speelplekken) -> bool:
         return df_points.within(polygon).any()
     try:
         df['speelplekken'] = df['geometry'].apply(lambda poly: check_presence(poly))
@@ -186,16 +211,28 @@ recoded_features = {
 }
 
 
-def _union_area(geometries):
-    """Oppervlak van de union van alle features — overlap telt 1×."""
+def _union_area(geometries: Iterable[BaseGeometry]) -> float:
+    """Oppervlak van de union van alle geometrieën, waarbij overlap
+    tussen features maar één keer wordt geteld."""
     geoms = [g for g in geometries if g is not None and not g.is_empty]
     if not geoms:
         return 0.0
     return unary_union(geoms).area
 
 
-def get_stats_per_geometry(geometry, df, exclude_subcategories=['agragrisch'],
-                           recoded_features=recoded_features):
+def get_stats_per_geometry(
+    geometry: BaseGeometry,
+    df: gpd.GeoDataFrame,
+    exclude_subcategories: list = ['agragrisch'],
+    recoded_features: dict = recoded_features,
+) -> Optional[pd.DataFrame]:
+    """Bereken de oppervlakte-verdeling van BGT-features binnen de
+    gegeven geometrie (typisch een buurt). Retourneert een DataFrame met
+    per (categorie, subcategorie) een absolute oppervlakte en aandeel,
+    plus vergelijkbare rijen per rec_feature.
+
+    Retourneert ``None`` wanneer de geometrie niet valide is voor
+    clipping."""
     try:
         clipped_gdf = gpd.clip(df, gpd.GeoSeries(geometry))
     except se.GEOSException as error:
@@ -208,13 +245,14 @@ def get_stats_per_geometry(geometry, df, exclude_subcategories=['agragrisch'],
         lambda x: x.strip() if isinstance(x, str) else x
     )
 
-    # Filter agragrisch (en andere excluded) volledig uit — union-benadering
-    # kan niet met area=0 werken zoals de oude sum-benadering.
+    # Filter agragrisch (en andere excluded) volledig uit: de
+    # union-benadering kan niet met area=0 werken zoals de oude
+    # sum-benadering.
     non_excluded = clipped_gdf.loc[
         ~clipped_gdf.subcategorie.isin(exclude_subcategories)
     ].copy()
 
-    # Per (categorie, subcategorie) de union-oppervlakte — dubbeltellingen
+    # Per (categorie, subcategorie) de union-oppervlakte; dubbeltellingen
     # tussen features van dezelfde class gaan weg.
     summary_df = (
         non_excluded.groupby(['categorie', 'subcategorie'])['geometry']
@@ -222,9 +260,9 @@ def get_stats_per_geometry(geometry, df, exclude_subcategories=['agragrisch'],
         .reset_index(name='area')
     )
 
-    # total_area moet de union zijn over álle non-excluded features — niet
-    # de som van per-class-unions, want die telt overlap TUSSEN classes
-    # alsnog dubbel.
+    # total_area moet de union zijn over álle non-excluded features,
+    # niet de som van per-class-unions, want die telt overlap TUSSEN
+    # classes alsnog dubbel.
     total_area = _union_area(non_excluded['geometry'])
     summary_df['relative'] = (
         summary_df['area'] / total_area if total_area > 0 else 0.0
@@ -263,28 +301,35 @@ def get_stats_per_geometry(geometry, df, exclude_subcategories=['agragrisch'],
         ignore_index=True,
     )
 
-def get_buurt_data(df_bw, df):
+def get_buurt_data(buurten: list[Buurt], df: gpd.GeoDataFrame) -> list[pd.DataFrame]:
+    """Bereken voor elke buurt de oppervlakte-verdeling van
+    BGT-features. Retourneert een lijst van breed-getransformeerde
+    DataFrames (één rij per buurt, kolommen per categorie)."""
     out = []
-    for buurt in df_bw.iterrows():
-        stats_df = get_stats_per_geometry(buurt[1]['geometry'], df)
+    for buurt in buurten:
+        stats_df = get_stats_per_geometry(buurt.geometrie, df)
         if stats_df is None:
-            #this happens when geometry is invalid
+            # buurt-geometrie was niet valide voor clipping
             continue
 
-        #bla = pd.melt(bla, id_vars=['buurtcode', 'buurtnaam', 'wijkcode', 'gemeentecode'], value_vars=['area', 'relative'])
-        stats_df['buurtcode'] = buurt[1]['buurtcode']
+        stats_df['buurtcode'] = buurt.code
         stats_df = stats_df.pivot(index='buurtcode', columns='totaal_categorie', values=['area', 'relative'])
-        stats_df['buurtnaam'] = buurt[1]['buurtnaam']
-        stats_df['buurtcode'] = buurt[1]['buurtcode']
-        stats_df['wijkcode'] = buurt[1]['wijkcode']
-        stats_df['gemeentecode'] = buurt[1]['gemeentecode']
+        stats_df['buurtnaam'] = buurt.naam
+        stats_df['buurtcode'] = buurt.code
+        stats_df['wijkcode'] = buurt.wijkcode
+        stats_df['gemeentecode'] = buurt.gemeentecode
         out.append(stats_df)
     return out
 
-def transform_buurt_data(df_bw, df):
-    stats_df = get_buurt_data(df_bw, df)
+
+def transform_buurt_data(buurten: list[Buurt], df: gpd.GeoDataFrame) -> pd.DataFrame:
+    """Combineer per-buurt statistieken tot één long-format DataFrame
+    met kolom ``stat`` (``area`` of ``relative``) en per categorie een
+    kolom met de waarde."""
+    stats_df = get_buurt_data(buurten, df)
     combined_df = pd.concat(stats_df)
-    def create_area_and_relative_df(stat, combined_df):
+
+    def create_area_and_relative_df(stat: str, combined_df: pd.DataFrame) -> pd.DataFrame:
         temp_df = combined_df[stat].copy()
         temp_df['stat'] = stat
         temp_df['buurtnaam'] = combined_df['buurtnaam']
@@ -301,18 +346,28 @@ features = ['auto',
        'buitengebied_buitensport', 'gemengd', 'buitengebied', 'buitengebied_spelen', 'buitengebied_agragrisch', 'buitengebied_natuur']
 
 
-def bereken_beweegvriendelijkheid(gemeente_code):
+def bereken_beweegvriendelijkheid(
+    gemeente_code: str,
+    **adapter_kwargs: Any,
+) -> pd.DataFrame:
     """Bereken de oppervlakte-verdeling van beweegvriendelijke ruimte
-    per buurt voor de gegeven gemeente. Retourneert een DataFrame met
-    per buurt zowel absolute m² (`stat == 'area'`) als aandelen
-    (`stat == 'relative'`) voor alle categorieën en rec_features."""
-    gemeente_data = load_and_initialise_gemeente_data(gemeente_code)
+    per buurt voor de gegeven gemeente.
+
+    :param gemeente_code: gemeentecode inclusief prefix (bijv. "GM1680").
+    :param adapter_kwargs: extra keyword-argumenten die worden
+        doorgegeven aan ``load_and_initialise_gemeente_data`` om
+        adapters te vervangen (dependency injection voor tests).
+    :returns: DataFrame met per buurt twee rijen (``stat == 'area'`` en
+        ``stat == 'relative'``) en per categorie en rec_feature een
+        kolom.
+    """
+    gemeente_data = load_and_initialise_gemeente_data(gemeente_code, **adapter_kwargs)
     df = feature_engineering(
         gemeente_data['bgt_df'],
         gemeente_data['speelplekken_df'],
         gemeente_data['buitensporten_df'],
     )
-    df = transform_buurt_data(gemeente_data['buurt_geometrie_df'], df)
+    df = transform_buurt_data(gemeente_data['buurten'], df)
 
     for feature in list(features) + list(recoded_features.keys()):
         if feature in df.columns:
