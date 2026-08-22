@@ -35,10 +35,10 @@ def load_and_initialise_gemeente_data(
     buurten = bg_instance.get_buurten()
 
     bgt_gemeente = bgt_klasse(gemeente_code, gemeente.geometrie)
-    bgt_df = bgt_gemeente.get_gemeente()
+    bgt_df = bgt_gemeente.get_features()
 
-    sp = speelplekken_klasse()
-    speelplekken_df = sp.get_alle(gemeente_code, gemeente.geometrie)
+    sp = speelplekken_klasse(gemeente_code, gemeente.geometrie)
+    speelplekken_df = sp.get_alle()
 
     buitensporten_df = None
     if buitensporten_klasse is not None:

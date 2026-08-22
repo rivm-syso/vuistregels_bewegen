@@ -42,8 +42,8 @@ class BGT():
     def __init__(self, gemeente_code: str, geometry: BaseGeometry) -> None:
         self.gemeente_code = gemeente_code
         self.geometry = geometry
-        self.download_gemeente()
-        self.get_gemeente()  # TODO wat vreemd, we doen niets met het resultaat
+        self.download_features()
+        self.get_features()  # TODO wat vreemd, we doen niets met het resultaat
 
     def download_bgt(
         self,
@@ -109,7 +109,7 @@ class BGT():
         df['file'] = feature
         return df
 
-    def download_gemeente(self, features: Optional[list] = None) -> None:
+    def download_features(self, features: Optional[list] = None) -> None:
         """Download alle featuretypes voor deze gemeente, laad ze samen
         en cache als parquet. Doet niets wanneer de cache al bestaat."""
         if features is None:
@@ -130,16 +130,16 @@ class BGT():
         df.to_parquet(f"{DATA_PATH}/bgt/gemeenten/{self.gemeente_code}_bgt_features.parquet")
         shutil.rmtree(f"{DATA_PATH}/bgt/gemeenten/{self.gemeente_code}")
 
-    def get_gemeente(self) -> gpd.GeoDataFrame:
+    def get_features(self) -> gpd.GeoDataFrame:
         """Retourneer de gefilterde en gecategoriseerde BGT-features
         voor deze gemeente. Triggert een download wanneer nog niet
         gecached."""
         if os.path.exists(f"{DATA_PATH}/bgt/gemeenten/{self.gemeente_code}_bgt_features.parquet"):
-            return self.parse_gemeente()
-        self.download_gemeente()
-        return self.get_gemeente()
+            return self.parse_features()
+        self.download_features()
+        return self.get_features()
 
-    def parse_gemeente(self) -> gpd.GeoDataFrame:
+    def parse_features(self) -> gpd.GeoDataFrame:
         """Verwijder straatmeubilair en erven, splits speelvoorzieningen
         af naar een aparte cache, en retourneer de opgeschoonde
         BGT-features."""
@@ -154,4 +154,4 @@ class BGT():
         bgt_gemeente = bgt_gemeente.drop(['opTalud'], axis=1)
         bgt_gemeente.to_parquet(f"{DATA_PATH}/bgt/gemeenten/{self.gemeente_code}_bgt_features_parsed.parquet")
         bgt_speel_df.to_parquet(f"{DATA_PATH}/bgt/gemeenten/{self.gemeente_code}_bgt_playgrounds_parsed.parquet")
-        return self.parse_gemeente()
+        return self.parse_features()

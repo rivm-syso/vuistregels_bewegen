@@ -30,7 +30,7 @@ class BgtPoort(Protocol):
     """Bron van BGT-features (verharding, groen, water, wegen, etc.)
     voor één gemeente."""
 
-    def get_gemeente(self) -> GeoDataFrame:
+    def get_features(self) -> GeoDataFrame:
         """Retourneer de gefilterde en gecategoriseerde BGT-features
         voor deze gemeente."""
         ...
@@ -40,9 +40,8 @@ class SpeelplekkenPoort(Protocol):
     """Bron van speelpleklocaties (samengevoegd uit Buitenspeelkaart,
     OSM en BGT)."""
 
-    def get_alle(self, gemeente_code: str, geometrie: BaseGeometry) -> GeoDataFrame:
-        """Retourneer de speelpleklocaties binnen de gegeven geometrie
-        voor de gegeven gemeente."""
+    def get_alle(self) -> GeoDataFrame:
+        """Retourneer de speelpleklocaties binnen deze gemeente."""
         ...
 
 
