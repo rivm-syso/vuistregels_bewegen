@@ -19,6 +19,16 @@ Zonder installatie werkt het ook direct vanuit de root:
 
     python -m cli bereken beweegvriendelijk GM1680
 
+## Tests
+
+Installeer eerst de dev-dependencies:
+
+    python -m pip install -e ".[dev]"
+
+Draai vervolgens vanuit de root:
+
+    python -m pytest
+
 ## Conventies
 
 Voertaal: **hybride NL/EN**. De regels zijn strikt: nieuwe code hoort

@@ -101,11 +101,13 @@ class BGT():
     def _load_feature(self, feature: str) -> gpd.GeoDataFrame:
         """Laad één BGT-featuretype uit het GML-bestand voor deze
         gemeente. Retourneert een leeg GeoDataFrame wanneer het bestand
-        niet leesbaar is."""
-        try:
-            df = gpd.read_file(f"{DATA_PATH}/bgt/gemeenten/{self.gemeente_code}/bgt_{feature}.gml")
-        except IndexError:
+        niet aanwezig is (bijv. omdat de gemeente dat featuretype niet
+        heeft)."""
+        file_path = f"{DATA_PATH}/bgt/gemeenten/{self.gemeente_code}/bgt_{feature}.gml"
+        if not os.path.exists(file_path):
             df = gpd.GeoDataFrame()
+        else:
+            df = gpd.read_file(file_path)
         df['file'] = feature
         return df
 

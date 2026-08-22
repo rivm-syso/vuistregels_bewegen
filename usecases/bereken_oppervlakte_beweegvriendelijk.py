@@ -174,6 +174,15 @@ def _casewhen(df: gpd.GeoDataFrame, structure: dict) -> gpd.GeoDataFrame:
     return df
 
 
+def _bevat_punt(df: gpd.GeoDataFrame, punten: Optional[gpd.GeoDataFrame]) -> pd.Series:
+    """Retourneer per feature in ``df`` een bool: bevat de polygoon
+    minstens één van de punten in ``punten``? Bij ``None`` of een lege
+    puntenset overal ``False``."""
+    if punten is None or len(punten) == 0:
+        return pd.Series(False, index=df.index)
+    return df['geometry'].apply(lambda poly: punten.within(poly).any())
+
+
 def feature_engineering(
     df: gpd.GeoDataFrame,
     df_speelplekken: Optional[gpd.GeoDataFrame],
@@ -182,20 +191,8 @@ def feature_engineering(
 ) -> gpd.GeoDataFrame:
     """Voeg per BGT-feature de kolommen ``categorie``, ``subcategorie``,
     ``speelplekken`` en ``buitensporten`` toe."""
-    def check_presence(polygon: BaseGeometry, df_points=df_speelplekken) -> bool:
-        return df_points.within(polygon).any()
-    try:
-        df['speelplekken'] = df['geometry'].apply(lambda poly: check_presence(poly))
-    except:
-        df['speelplekken'] = False
-
-    if df_buitensporten is not None:
-        try:
-            df['buitensporten'] = df['geometry'].apply(lambda poly: check_presence(poly, df_points=df_buitensporten))
-        except:
-            df['buitensporten'] = False
-    else:
-        df['buitensporten'] = False
+    df['speelplekken'] = _bevat_punt(df, df_speelplekken)
+    df['buitensporten'] = _bevat_punt(df, df_buitensporten)
     for feature in structure:
         df = _casewhen(df, feature)
     return df
@@ -234,7 +231,7 @@ def get_stats_per_geometry(
     Retourneert ``None`` wanneer de geometrie niet valide is voor
     clipping."""
     try:
-        clipped_gdf = gpd.clip(df, gpd.GeoSeries(geometry))
+        clipped_gdf = gpd.clip(df, gpd.GeoSeries([geometry], crs=df.crs))
     except se.GEOSException as error:
         print("WARNING WARNING: GEOS_EXCEPTION DID NOT PARSE")
         return None
