@@ -16,162 +16,9 @@ from shapely import errors as se
 from shapely.geometry.base import BaseGeometry
 from shapely.ops import unary_union
 
+from domein.bgt_categorisatie import pas_categorisatie_toe, structure
 from domein.entiteiten import Buurt
 from usecases.initialiseer_data import load_and_initialise_gemeente_data
-
-structure_begroeidterreindeel = [
-    {'column': 'bgt-fysiekVoorkomen',
-     'operator': 'if',
-     'type': 'categorie',
-     'from': ['groenvoorziening'],
-     'to': 'groen'},
-    {'column': 'bgt-fysiekVoorkomen',
-     'operator': 'if',
-     'type': 'categorie',
-     'from': ['struiken'],
-     'to': 'groen'},
-    {'column': 'bgt-fysiekVoorkomen',
-     'operator': 'else',
-     'type': 'categorie',
-     'to': 'buitengebied'},
-    {'column': 'bgt-fysiekVoorkomen',
-     'operator': 'if',
-     'type': 'subcategorie',
-     'from': ['boomteelt', 'bouwland', 'fruitteelt', 'grasland agrarisch'],
-     'to': 'agrarisch'},
-    {'column': 'bgt-fysiekVoorkomen',
-     'operator': 'if',
-     'type': 'subcategorie',
-     'from': ['gemengd bos', 'houtwal', 'loofbos', 'moeras', 'naaldbos', 'rietland', 'grasland overig'],
-     'to': 'natuur'},
-    {'column': 'speelplekken',
-     'operator': 'if',
-     'type': 'subcategorie',
-     'from': [True],
-     'to': 'spelen'},
-    {'column': 'buitensporten',
-     'operator': 'if',
-     'type': 'subcategorie',
-     'from': [True],
-     'to': 'buitensport'}
-]
-
-structure_onbegroeidterreindeel = [
-    {'column': 'bgt-fysiekVoorkomen',
-     'operator': 'else',
-     'type': 'categorie',
-     'to': 'overig'},
-    {'column': 'speelplekken',
-     'operator': 'if',
-     'type': 'subcategorie',
-     'from': [True],
-     'to': 'spelen'},
-    {'column': 'buitensporten',
-     'operator': 'if',
-     'type': 'subcategorie',
-     'from': [True],
-     'to': 'buitensport'},
-    {'column': 'bgt-fysiekVoorkomen',
-     'operator': 'else',
-     'type': 'subcategorie',
-     'to': 'verharding'}
-]
-
-structure_ondersteunendwaterdeel = [
-    {'column': 'bgt-fysiekVoorkomen',
-     'operator': 'else',
-     'type': 'categorie',
-     'to': 'groen'},
-    {'column': 'bgt-fysiekVoorkomen',
-     'operator': 'else',
-     'type': 'subcategorie',
-     'to': 'groenblauw'}
-]
-
-structure_ondersteunendwegdeel = [
-    {'column': 'bgt-fysiekVoorkomen',
-     'operator': 'if',
-     'type': 'categorie',
-     'from': ['groenvoorziening'],
-     'to': 'groen'},
-    {'column': 'bgt-fysiekVoorkomen',
-     'operator': 'else',
-     'type': 'categorie',
-     'to': 'verkeer'}
-]
-
-
-structure_waterdeel = [
-    {'column': 'bgt-type',
-     'operator': 'if',
-     'type': 'categorie',
-     'from': ['greppel, droge sloot'],
-     'to': 'groen'},
-    {'column': 'bgt-type',
-     'operator': 'else',
-     'type': 'categorie',
-     'to': 'water'},
-    {'column': 'bgt-type',
-     'operator': 'if',
-     'type': 'subcategorie',
-     'from': ['greppel, droge sloot'],
-     'to': 'groenblauw'}
-]
-
-structure_wegdeel = [
-    {'column': 'bgt-functie',
-     'operator': 'if',
-     'type': 'categorie',
-     'from': ['fietspad'],
-     'to': 'fiets'},
-    {'column': 'bgt-functie',
-     'operator': 'if',
-     'type': 'categorie',
-     'from': ['inrit', 'rijbaan autosnelweg', 'rijbaan autoweg', 'rijbaan lokale weg', 'rijbaan regionale weg'],
-     'to': 'auto'},
-    {'column': 'bgt-functie',
-     'operator': 'if',
-     'type': 'categorie',
-     'from': ['OV-baan', 'spoorbaan'],
-     'to': 'OV'},
-     {'column': 'bgt-functie',
-     'operator': 'if',
-     'type': 'categorie',
-     'from': ['overweg', 'woonerf'],
-     'to': 'gemengd'},
-        {'column': 'bgt-functie',
-     'operator': 'if',
-     'type': 'categorie',
-     'from': ['parkeervlak'],
-     'to': 'parkeren'},
-        {'column': 'bgt-functie',
-     'operator': 'if',
-     'type': 'categorie',
-     'from': ['ruiterpad', 'voetgangersgebied', 'voetpad op trap', 'voetpad'],
-     'to': 'voetganger'},
-]
-
-structure = [
-    {'feature_layer': 'begroeidterreindeel', 'steps': structure_begroeidterreindeel},
-    {'feature_layer': 'onbegroeidterreindeel', 'steps': structure_onbegroeidterreindeel},
-    {'feature_layer': 'ondersteunendwaterdeel', 'steps': structure_ondersteunendwaterdeel},
-    {'feature_layer': 'ondersteunendwegdeel', 'steps': structure_ondersteunendwegdeel},
-    {'feature_layer': 'waterdeel', 'steps': structure_waterdeel},
-    {'feature_layer': 'wegdeel', 'steps': structure_wegdeel},
-]
-
-def _casewhen(df: gpd.GeoDataFrame, structure: dict) -> gpd.GeoDataFrame:
-    """Voeg categorie- en subcategoriekolommen toe aan ``df`` op basis
-    van de regels in ``structure`` (per BGT-featurelaag)."""
-    feature_layer = structure['feature_layer']
-    for step in structure['steps']:
-        outcome_col = step['type']
-        input_col = step['column']
-        if step['operator'] == "if":
-            df.loc[df[input_col].isin(step['from']) & df.file.isin([feature_layer]), outcome_col] = step['to']
-        if step['operator'] == "else":
-            df.loc[df[outcome_col].isnull() & df.file.isin([feature_layer]), outcome_col] = step['to']
-    return df
 
 
 def _bevat_punt(df: gpd.GeoDataFrame, punten: Optional[gpd.GeoDataFrame]) -> pd.Series:
@@ -193,8 +40,8 @@ def feature_engineering(
     ``speelplekken`` en ``buitensporten`` toe."""
     df['speelplekken'] = _bevat_punt(df, df_speelplekken)
     df['buitensporten'] = _bevat_punt(df, df_buitensporten)
-    for feature in structure:
-        df = _casewhen(df, feature)
+    for laag_regels in structure:
+        df = pas_categorisatie_toe(df, laag_regels)
     return df
 
 recoded_features = {

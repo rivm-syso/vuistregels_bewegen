@@ -6,7 +6,7 @@ Kleine, gefinaliseerde objecten (Gemeente, Buurt) worden retourneerd
 als domein-entiteiten. Grote feature-verzamelingen blijven
 GeoDataFrames.
 """
-from typing import Optional, Protocol
+from typing import Optional, Protocol, runtime_checkable
 
 from geopandas import GeoDataFrame
 from shapely.geometry.base import BaseGeometry
@@ -14,6 +14,7 @@ from shapely.geometry.base import BaseGeometry
 from .entiteiten import Buurt, Gemeente
 
 
+@runtime_checkable
 class BestuurlijkeGrenzenPoort(Protocol):
     """Bron van gemeente- en buurtgrenzen."""
 
@@ -26,6 +27,7 @@ class BestuurlijkeGrenzenPoort(Protocol):
         ...
 
 
+@runtime_checkable
 class BgtPoort(Protocol):
     """Bron van BGT-features (verharding, groen, water, wegen, etc.)
     voor één gemeente."""
@@ -36,6 +38,7 @@ class BgtPoort(Protocol):
         ...
 
 
+@runtime_checkable
 class SpeelplekkenPoort(Protocol):
     """Bron van speelpleklocaties (samengevoegd uit Buitenspeelkaart,
     OSM en BGT)."""
@@ -45,6 +48,7 @@ class SpeelplekkenPoort(Protocol):
         ...
 
 
+@runtime_checkable
 class BuitensportenPoort(Protocol):
     """Bron van buitensport-voorzieningen (Mulier DSA-portaal)."""
 
