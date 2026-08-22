@@ -12,28 +12,25 @@ from typing import Optional
 
 from usecases.bereken_oppervlakte_beweegvriendelijk import (
     bereken_beweegvriendelijkheid,
+    naar_dataframe,
 )
 
 
 def _cmd_bereken_beweegvriendelijk(args: argparse.Namespace) -> None:
     """Voer de use case ``bereken_beweegvriendelijkheid`` uit en toon
     of schrijf het resultaat weg."""
-    df = bereken_beweegvriendelijkheid(args.gemeente_code)
+    resultaten = bereken_beweegvriendelijkheid(args.gemeente_code)
     if args.uit:
+        df = naar_dataframe(resultaten)
         if args.uit.endswith(".parquet"):
             df.to_parquet(args.uit)
         else:
             df.to_csv(args.uit, index=False)
         print(f"Resultaat opgeslagen naar {args.uit}")
     else:
-        print(
-            df.loc[
-                df["stat"] == "area",
-                ["buurtnaam", "rec_total", "rec_actief"],
-            ]
-            .head(20)
-            .to_string(index=False)
-        )
+        print(f"{'buurtnaam':35s}  {'rec_total':>12s}  {'rec_actief':>12s}")
+        for r in resultaten[:20]:
+            print(f"{r.buurt.naam:35s}  {r.absoluut_m2['rec_total']:12.6e}  {r.absoluut_m2['rec_actief']:12.6f}")
 
 
 def bouw_parser() -> argparse.ArgumentParser:

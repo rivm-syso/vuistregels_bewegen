@@ -8,11 +8,12 @@ import pandas as pd
 import pytest
 from shapely.geometry import Point, Polygon, box
 
-from domein.entiteiten import Buurt, Gemeente
+from domein.entiteiten import BeweegvriendelijkheidPerBuurt, Buurt, Gemeente
 from usecases.bereken_oppervlakte_beweegvriendelijk import (
     _bevat_punt,
     _union_area,
     bereken_beweegvriendelijkheid,
+    naar_dataframe,
 )
 
 
@@ -130,38 +131,59 @@ class _FakeSpeelplekken:
 
 
 def test_bereken_beweegvriendelijkheid_met_fakes_produceert_verwachte_shape():
-    df = bereken_beweegvriendelijkheid(
+    resultaten = bereken_beweegvriendelijkheid(
         "GM9999",
         grenzen_klasse=_FakeBestuurlijkeGrenzen,
         bgt_klasse=_FakeBGT,
         speelplekken_klasse=_FakeSpeelplekken,
     )
 
-    # Twee rijen per buurt: één area, één relative
-    assert set(df['stat'].unique()) == {'area', 'relative'}
-    assert len(df) == 2
+    assert len(resultaten) == 1
+    r = resultaten[0]
+    assert isinstance(r, BeweegvriendelijkheidPerBuurt)
+    assert r.buurt.naam == "Testbuurt"
 
-    # Verwachte kolommen aanwezig
-    for kolom in ['buurtnaam', 'rec_total', 'rec_actief', 'rec_auto', 'rec_groen_blauw']:
-        assert kolom in df.columns, f"kolom {kolom!r} ontbreekt"
+    # Verwachte keys aanwezig
+    for key in ['rec_total', 'rec_actief', 'rec_auto', 'rec_groen_blauw']:
+        assert key in r.absoluut_m2, f"key {key!r} ontbreekt in absoluut_m2"
+        assert key in r.relatief_aandeel, f"key {key!r} ontbreekt in relatief_aandeel"
 
     # De fake heeft één groenvlak (5000 m2) en één rijbaan (5000 m2)
-    area_rij = df.loc[df['stat'] == 'area'].iloc[0]
-    assert area_rij['buurtnaam'] == "Testbuurt"
-    assert area_rij['rec_groen_blauw'] == pytest.approx(5000.0)
-    assert area_rij['rec_auto'] == pytest.approx(5000.0)
-    assert area_rij['rec_total'] == pytest.approx(10000.0)
+    assert r.absoluut_m2['rec_groen_blauw'] == pytest.approx(5000.0)
+    assert r.absoluut_m2['rec_auto'] == pytest.approx(5000.0)
+    assert r.absoluut_m2['rec_total'] == pytest.approx(10000.0)
 
 
 def test_bereken_beweegvriendelijkheid_zonder_buitensporten_klasse_zet_kolom_op_false():
     # Impliciet: buitensporten_klasse=None. De feature_engineering
     # moet dan alle buitensporten-vlaggen op False zetten en niet
     # crashen.
-    df = bereken_beweegvriendelijkheid(
+    resultaten = bereken_beweegvriendelijkheid(
         "GM9999",
         grenzen_klasse=_FakeBestuurlijkeGrenzen,
         bgt_klasse=_FakeBGT,
         speelplekken_klasse=_FakeSpeelplekken,
     )
-    # Als de feature_engineering had gefaald zou len(df) == 0 zijn
-    assert not df.empty
+    # Als de feature_engineering had gefaald zou de lijst leeg zijn
+    assert len(resultaten) > 0
+
+
+def test_naar_dataframe_produceert_long_format():
+    resultaten = bereken_beweegvriendelijkheid(
+        "GM9999",
+        grenzen_klasse=_FakeBestuurlijkeGrenzen,
+        bgt_klasse=_FakeBGT,
+        speelplekken_klasse=_FakeSpeelplekken,
+    )
+    df = naar_dataframe(resultaten)
+
+    # Twee rijen per buurt: één area, één relative
+    assert set(df['stat'].unique()) == {'area', 'relative'}
+    assert len(df) == 2
+    assert 'buurtnaam' in df.columns
+    assert 'rec_total' in df.columns
+
+
+def test_naar_dataframe_op_lege_lijst_geeft_lege_dataframe():
+    df = naar_dataframe([])
+    assert df.empty

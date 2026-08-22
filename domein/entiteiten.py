@@ -27,6 +27,24 @@ class Gemeente:
 
 
 @dataclass(frozen=True)
+class BeweegvriendelijkheidPerBuurt:
+    """Uitkomst van een beweegvriendelijkheidsberekening voor één
+    buurt.
+
+    :param buurt: de buurt waarop deze uitkomst betrekking heeft.
+    :param absoluut_m2: per (rec_)feature het aandeel in m². Bevat
+        zowel raw categorieen (bijv. ``'groen'``, ``'fiets'``) als
+        aggregaties (``'rec_auto'``, ``'rec_actief_transport'``,
+        ``'rec_total'``, ``'rec_inactief'``, ``'rec_actief'``).
+    :param relatief_aandeel: dezelfde keys als ``absoluut_m2``, maar
+        als aandeel (tussen 0 en 1) van de totale gebiedsoppervlakte.
+    """
+    buurt: "Buurt"
+    absoluut_m2: dict
+    relatief_aandeel: dict
+
+
+@dataclass(frozen=True)
 class Buurt:
     """CBS-buurt binnen een gemeente.
 

@@ -18,7 +18,7 @@ from shapely.geometry.base import BaseGeometry
 from shapely.ops import unary_union
 
 from domein.bgt_categorisatie import pas_categorisatie_toe, structure
-from domein.entiteiten import Buurt
+from domein.entiteiten import BeweegvriendelijkheidPerBuurt, Buurt
 from usecases.initialiseer_data import load_and_initialise_gemeente_data
 
 logger = logging.getLogger(__name__)
@@ -196,7 +196,7 @@ features = ['auto',
 def bereken_beweegvriendelijkheid(
     gemeente_code: str,
     **adapter_kwargs: Any,
-) -> pd.DataFrame:
+) -> list[BeweegvriendelijkheidPerBuurt]:
     """Bereken de oppervlakte-verdeling van beweegvriendelijke ruimte
     per buurt voor de gegeven gemeente.
 
@@ -204,9 +204,9 @@ def bereken_beweegvriendelijkheid(
     :param adapter_kwargs: extra keyword-argumenten die worden
         doorgegeven aan ``load_and_initialise_gemeente_data`` om
         adapters te vervangen (dependency injection voor tests).
-    :returns: DataFrame met per buurt twee rijen (``stat == 'area'`` en
-        ``stat == 'relative'``) en per categorie en rec_feature een
-        kolom.
+    :returns: lijst van ``BeweegvriendelijkheidPerBuurt``-entiteiten,
+        een per buurt in de gemeente. Voor CSV- of Parquet-export:
+        gebruik ``naar_dataframe``.
     """
     gemeente_data = load_and_initialise_gemeente_data(gemeente_code, **adapter_kwargs)
     df = feature_engineering(
@@ -226,9 +226,53 @@ def bereken_beweegvriendelijkheid(
     df['rec_inactief'] = df['rec_auto'] + df['rec_overig']
     df['rec_actief'] = df['rec_actief_transport'] + df['rec_spelen']
 
-    return df
+    return _dataframe_naar_resultaten(df, gemeente_data['buurten'])
+
+
+def _dataframe_naar_resultaten(
+    df: pd.DataFrame,
+    buurten: list[Buurt],
+) -> list[BeweegvriendelijkheidPerBuurt]:
+    """Converteer het long-format DataFrame (met stat='area' en
+    stat='relative'-rijen) naar een lijst domein-entiteiten."""
+    buurt_per_code = {b.code: b for b in buurten}
+    metadata_kolommen = {'buurtnaam', 'buurtcode', 'wijkcode', 'gemeentecode', 'stat'}
+
+    resultaten = []
+    for buurtcode in df['buurtcode'].unique():
+        buurt = buurt_per_code.get(buurtcode)
+        if buurt is None:
+            continue
+        area_rij = df.loc[(df['buurtcode'] == buurtcode) & (df['stat'] == 'area')].iloc[0]
+        relatief_rij = df.loc[(df['buurtcode'] == buurtcode) & (df['stat'] == 'relative')].iloc[0]
+        feature_kolommen = [k for k in area_rij.index if k not in metadata_kolommen]
+
+        resultaten.append(BeweegvriendelijkheidPerBuurt(
+            buurt=buurt,
+            absoluut_m2={k: float(area_rij[k]) for k in feature_kolommen},
+            relatief_aandeel={k: float(relatief_rij[k]) for k in feature_kolommen},
+        ))
+    return resultaten
+
+
+def naar_dataframe(resultaten: list[BeweegvriendelijkheidPerBuurt]) -> pd.DataFrame:
+    """Zet een lijst ``BeweegvriendelijkheidPerBuurt`` om naar een
+    long-format DataFrame met per buurt twee rijen (``stat == 'area'``
+    en ``stat == 'relative'``). Bedoeld voor CSV- of Parquet-export."""
+    rijen = []
+    for r in resultaten:
+        buurt_meta = {
+            'buurtcode': r.buurt.code,
+            'buurtnaam': r.buurt.naam,
+            'wijkcode': r.buurt.wijkcode,
+            'gemeentecode': r.buurt.gemeentecode,
+        }
+        rijen.append({**buurt_meta, 'stat': 'area', **r.absoluut_m2})
+        rijen.append({**buurt_meta, 'stat': 'relative', **r.relatief_aandeel})
+    return pd.DataFrame(rijen)
 
 
 if __name__ == "__main__":
-    df = bereken_beweegvriendelijkheid("GM1680")
-    print(df.loc[df['stat'] == 'area', ['buurtnaam', 'rec_total', 'rec_actief']].head(20))
+    resultaten = bereken_beweegvriendelijkheid("GM1680")
+    for r in resultaten[:20]:
+        print(f"{r.buurt.naam:35s}  {r.absoluut_m2['rec_total']:12.6e}  {r.absoluut_m2['rec_actief']:12.6f}")
