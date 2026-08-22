@@ -38,7 +38,7 @@ structure_begroeidterreindeel = [
      'operator': 'if',
      'type': 'subcategorie',
      'from': ['boomteelt', 'bouwland', 'fruitteelt', 'grasland agrarisch'],
-     'to': 'agragrisch'},
+     'to': 'agrarisch'},
     {'column': 'bgt-fysiekVoorkomen',
      'operator': 'if',
      'type': 'subcategorie',
@@ -223,7 +223,7 @@ def _union_area(geometries: Iterable[BaseGeometry]) -> float:
 def get_stats_per_geometry(
     geometry: BaseGeometry,
     df: gpd.GeoDataFrame,
-    exclude_subcategories: list = ['agragrisch'],
+    exclude_subcategories: list = ['agrarisch'],
     recoded_features: dict = recoded_features,
 ) -> Optional[pd.DataFrame]:
     """Bereken de oppervlakte-verdeling van BGT-features binnen de
@@ -245,7 +245,7 @@ def get_stats_per_geometry(
         lambda x: x.strip() if isinstance(x, str) else x
     )
 
-    # Filter agragrisch (en andere excluded) volledig uit: de
+    # Filter agrarisch (en andere excluded) volledig uit: de
     # union-benadering kan niet met area=0 werken zoals de oude
     # sum-benadering.
     non_excluded = clipped_gdf.loc[
@@ -343,7 +343,7 @@ features = ['auto',
        'fiets', 'groen', 'groen_buitensport', 'groen_groenblauw',
        'groen_spelen', 'overig_buitensport', 'overig_spelen',
        'overig_verharding', 'parkeren', 'verkeer', 'voetganger', 'water', 'OV',
-       'buitengebied_buitensport', 'gemengd', 'buitengebied', 'buitengebied_spelen', 'buitengebied_agragrisch', 'buitengebied_natuur']
+       'buitengebied_buitensport', 'gemengd', 'buitengebied', 'buitengebied_spelen', 'buitengebied_agrarisch', 'buitengebied_natuur']
 
 
 def bereken_beweegvriendelijkheid(
