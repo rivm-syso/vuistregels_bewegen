@@ -5,19 +5,25 @@ er niet zelf naar hoeven te reiken.
 Adapter-klassen kunnen via de parameters worden vervangen (dependency
 injection); handig voor tests met fakes of alternatieve bronnen.
 """
-from typing import Any, Optional, Type
+from typing import Optional, Type
 
 from adapters.bestuurlijke_grenzen import BestuurlijkeGrenzen
 from adapters.bgt import BGT
 from adapters.speelplekken import Speelplekken
+from domein.porten import (
+    BestuurlijkeGrenzenPoort,
+    BgtPoort,
+    BuitensportenPoort,
+    SpeelplekkenPoort,
+)
 
 
 def load_and_initialise_gemeente_data(
     gemeente_code: str,
-    grenzen_klasse: Type[Any] = BestuurlijkeGrenzen,
-    bgt_klasse: Type[Any] = BGT,
-    speelplekken_klasse: Type[Any] = Speelplekken,
-    buitensporten_klasse: Optional[Type[Any]] = None,
+    grenzen_klasse: Type[BestuurlijkeGrenzenPoort] = BestuurlijkeGrenzen,
+    bgt_klasse: Type[BgtPoort] = BGT,
+    speelplekken_klasse: Type[SpeelplekkenPoort] = Speelplekken,
+    buitensporten_klasse: Optional[Type[BuitensportenPoort]] = None,
 ) -> dict:
     """Bundel de gemeente-brondata voor de gegeven gemeentecode.
 

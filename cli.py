@@ -7,6 +7,7 @@ Voorbeelden::
     vuistregels bereken beweegvriendelijk GM1680 --uit resultaat.csv
 """
 import argparse
+import logging
 from typing import Optional
 
 from usecases.bereken_oppervlakte_beweegvriendelijk import (
@@ -69,6 +70,7 @@ def bouw_parser() -> argparse.ArgumentParser:
 def main(argv: Optional[list] = None) -> None:
     """Entry point van de CLI. Parseer argumenten en dispatch naar het
     juiste subcommando."""
+    logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
     parser = bouw_parser()
     args = parser.parse_args(argv)
     args.func(args)

@@ -8,6 +8,7 @@ gecategoriseerd. De ratio's per buurt worden berekend met
 ``unary_union`` zodat overlappende features (bijv. wegdeel-parkeervlak
 over onbegroeidterreindeel-verharding) niet dubbel tellen.
 """
+import logging
 from typing import Any, Iterable, Optional
 
 import geopandas as gpd
@@ -19,6 +20,8 @@ from shapely.ops import unary_union
 from domein.bgt_categorisatie import pas_categorisatie_toe, structure
 from domein.entiteiten import Buurt
 from usecases.initialiseer_data import load_and_initialise_gemeente_data
+
+logger = logging.getLogger(__name__)
 
 
 def _bevat_punt(df: gpd.GeoDataFrame, punten: Optional[gpd.GeoDataFrame]) -> pd.Series:
@@ -80,7 +83,7 @@ def get_stats_per_geometry(
     try:
         clipped_gdf = gpd.clip(df, gpd.GeoSeries([geometry], crs=df.crs))
     except se.GEOSException as error:
-        print("WARNING WARNING: GEOS_EXCEPTION DID NOT PARSE")
+        logger.warning("GEOS-exceptie bij clippen van buurt-geometrie: %s", error)
         return None
 
     clipped_gdf = clipped_gdf.copy()

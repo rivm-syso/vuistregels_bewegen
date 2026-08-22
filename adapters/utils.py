@@ -1,9 +1,12 @@
 """Hulpmiddelen die door meerdere adapters worden gebruikt: HTTP-
 download naar disk en zip-extractie."""
+import logging
 import os
 import zipfile
 
 import requests
+
+logger = logging.getLogger(__name__)
 
 
 def file_downloader(url: str, local_filename: str) -> None:
@@ -16,9 +19,9 @@ def file_downloader(url: str, local_filename: str) -> None:
             with open(local_filename, 'wb') as file:
                 for chunk in response.iter_content(chunk_size=8192):
                     file.write(chunk)
-        print(f"Bestand gedownload en opgeslagen als {local_filename}")
+        logger.info("Bestand gedownload en opgeslagen als %s", local_filename)
     except requests.exceptions.RequestException as e:
-        print(f"Er is een fout opgetreden: {e}")
+        logger.error("Er is een fout opgetreden bij downloaden van %s: %s", url, e)
 
 
 def unzip_file(zip_file_path: str, extract_to_dir: str) -> None:
@@ -32,4 +35,4 @@ def unzip_file(zip_file_path: str, extract_to_dir: str) -> None:
     with zipfile.ZipFile(zip_file_path, 'r') as zip_ref:
         # pak alles uit naar de opgegeven map
         zip_ref.extractall(extract_to_dir)
-        print(f"Alle bestanden uitgepakt naar {extract_to_dir}")
+        logger.info("Alle bestanden uitgepakt naar %s", extract_to_dir)

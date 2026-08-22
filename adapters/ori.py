@@ -1,5 +1,6 @@
 """Adapter voor RUDIFUN (PBL) buurt-kenmerken: dichtheden, functies,
 oppervlakten. Wordt in de huidige use case nog niet actief gebruikt."""
+import logging
 import os
 import shutil
 import zipfile
@@ -9,6 +10,8 @@ import pandas as pd
 import requests
 
 from instellingen import DATA_PATH
+
+logger = logging.getLogger(__name__)
 
 
 class ORI():
@@ -29,18 +32,18 @@ class ORI():
 
         if not os.path.exists(gdb_path):
             os.makedirs(target_dir, exist_ok=True)
-            print("Zip wordt gedownload...")
+            logger.info("RUDIFUN-zip wordt gedownload...")
             with requests.get(url, stream=True) as r:
                 r.raise_for_status()
                 with open(zip_path, "wb") as f:
                     for chunk in r.iter_content(chunk_size=8192):
                         f.write(chunk)
-            print("Download voltooid.")
+            logger.info("Download voltooid.")
 
-            print("Uitpakken...")
+            logger.info("Uitpakken...")
             with zipfile.ZipFile(zip_path, 'r') as zip_ref:
                 zip_ref.extractall(target_dir)
-            print("Uitgepakt.")
+            logger.info("Uitgepakt.")
 
             df = gpd.read_file(f"{DATA_PATH}/rudifun/Rudifun_2024_nl.gdb", layer='nl2_03_Basis_Buurt')
             df.drop('geometry', axis=1, inplace=True)
@@ -49,9 +52,9 @@ class ORI():
 
             keep_file = "buurt2024.parquet"
             self._empty_dir_except(target_dir, keep_file)
-            print("Klaar.")
+            logger.info("RUDIFUN-cache klaar.")
         else:
-            print("Bestand bestaat al, download en uitpakken overgeslagen.")
+            logger.info("RUDIFUN-cache bestaat al, download overgeslagen.")
 
     def _empty_dir_except(self, target_dir: str, keep_file: str) -> None:
         """Verwijder alle bestanden en submappen in ``target_dir``

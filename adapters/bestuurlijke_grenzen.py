@@ -11,6 +11,7 @@ Opgesplitst in drie verantwoordelijkheden:
 - ``BestuurlijkeGrenzen``: facade die downloader en parser combineert
   en de ``BestuurlijkeGrenzenPoort`` implementeert.
 """
+import logging
 import os
 from typing import Optional
 
@@ -20,6 +21,8 @@ from domein.entiteiten import Buurt, Gemeente
 from instellingen import DATA_PATH
 
 from .utils import file_downloader, unzip_file
+
+logger = logging.getLogger(__name__)
 
 
 class BestuurlijkeGrenzenDownloader():
@@ -47,7 +50,7 @@ class BestuurlijkeGrenzenDownloader():
         """Download de landelijke wijk- en buurtgrenzen van CBS/PDOK
         wanneer die nog niet lokaal aanwezig zijn."""
         if not os.path.exists(f"{self.data_path}/bestuurlijkegrenzen/{layer}"):
-            print("Download gestart")
+            logger.info("Download bestuurlijke grenzen (%s) gestart", layer)
             os.mkdir(f"{self.data_path}/bestuurlijkegrenzen/{layer}")
             df = gpd.read_file(
                 "https://service.pdok.nl/cbs/wijkenbuurten/2024/atom/downloads/wijkenbuurten_2024.gpkg",

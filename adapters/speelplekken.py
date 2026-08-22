@@ -13,6 +13,7 @@ Opgesplitst in drie verantwoordelijkheden:
 - ``Speelplekken``: facade die downloader en parser combineert en de
   ``SpeelplekkenPoort`` implementeert.
 """
+import logging
 import os
 import shutil
 from typing import Optional
@@ -25,6 +26,8 @@ from shapely.geometry.base import BaseGeometry
 from instellingen import DATA_PATH
 
 from .utils import file_downloader, unzip_file
+
+logger = logging.getLogger(__name__)
 
 DEFAULT_PROVINCIES = [
     'groningen',
@@ -56,13 +59,13 @@ class SpeelplekkenDownloader():
         plaats_ids = gpd.GeoDataFrame.from_features(plaatsen.json()).id.to_list()
         for plaats_id in plaats_ids:
             if not os.path.exists(f"{self.data_path}/buitenspeelkaart/{plaats_id}.geojson"):
-                print("Buitenspeelkaart data wordt gedownload")
+                logger.info("Buitenspeelkaart-data wordt gedownload voor plaats %s", plaats_id)
                 sp = requests.get(f"https://www.buitenspeelkaart.nl/getFeatures/1/p/{plaats_id}")
                 sp = gpd.GeoDataFrame.from_features(sp.json())
                 if 'buitenspeelkaart' not in os.listdir(self.data_path):
                     os.mkdir(f"{self.data_path}/buitenspeelkaart")
                 sp.to_file(f"{self.data_path}/buitenspeelkaart/{plaats_id}.geojson", driver='GeoJSON')
-        print("Buitenspeelkaart data gevonden.")
+        logger.info("Buitenspeelkaart-data compleet.")
 
     def download_osm_playgrounds(self, fclasses: list = ['playground']) -> None:
         """Haal per provincie de OSM POI-shapefiles op via Geofabrik en
