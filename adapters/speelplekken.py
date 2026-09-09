@@ -61,7 +61,7 @@ class SpeelplekkenDownloader():
             if not os.path.exists(f"{self.data_path}/buitenspeelkaart/{plaats_id}.geojson"):
                 logger.info("Buitenspeelkaart-data wordt gedownload voor plaats %s", plaats_id)
                 sp = requests.get(f"https://www.buitenspeelkaart.nl/getFeatures/1/p/{plaats_id}")
-                sp = gpd.GeoDataFrame.from_features(sp.json())
+                sp = gpd.GeoDataFrame.from_features(sp.json(), crs="EPSG:4326")
                 if 'buitenspeelkaart' not in os.listdir(self.data_path):
                     os.mkdir(f"{self.data_path}/buitenspeelkaart")
                 sp.to_file(f"{self.data_path}/buitenspeelkaart/{plaats_id}.geojson", driver='GeoJSON')

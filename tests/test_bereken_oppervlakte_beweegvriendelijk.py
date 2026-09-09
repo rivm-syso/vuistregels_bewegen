@@ -137,6 +137,7 @@ def test_bereken_beweegvriendelijkheid_met_fakes_produceert_verwachte_shape():
         grenzen_klasse=_FakeBestuurlijkeGrenzen,
         bgt_klasse=_FakeBGT,
         speelplekken_klasse=_FakeSpeelplekken,
+        buitensporten_klasse=None,
     )
 
     assert len(resultaten) == 1
@@ -164,6 +165,7 @@ def test_bereken_beweegvriendelijkheid_zonder_buitensporten_klasse_zet_kolom_op_
         grenzen_klasse=_FakeBestuurlijkeGrenzen,
         bgt_klasse=_FakeBGT,
         speelplekken_klasse=_FakeSpeelplekken,
+        buitensporten_klasse=None,
     )
     # Als de feature_engineering had gefaald zou de lijst leeg zijn
     assert len(resultaten) > 0
@@ -175,6 +177,7 @@ def test_naar_dataframe_produceert_long_format():
         grenzen_klasse=_FakeBestuurlijkeGrenzen,
         bgt_klasse=_FakeBGT,
         speelplekken_klasse=_FakeSpeelplekken,
+        buitensporten_klasse=None,
     )
     df = naar_dataframe(resultaten)
 
@@ -199,6 +202,7 @@ def test_voor_gemeenten_combineert_resultaten_van_meerdere_gemeenten():
         grenzen_klasse=_FakeBestuurlijkeGrenzen,
         bgt_klasse=_FakeBGT,
         speelplekken_klasse=_FakeSpeelplekken,
+        buitensporten_klasse=None,
     )
 
     # Twee gemeenten, elk één buurt uit de fake -> twee resultaten
@@ -214,6 +218,7 @@ def test_voor_gemeenten_dedupliceert_input():
         grenzen_klasse=_FakeBestuurlijkeGrenzen,
         bgt_klasse=_FakeBGT,
         speelplekken_klasse=_FakeSpeelplekken,
+        buitensporten_klasse=None,
     )
     # Ondanks driemaal input: alleen twee unieke gemeenten in output
     assert len(resultaten) == 2

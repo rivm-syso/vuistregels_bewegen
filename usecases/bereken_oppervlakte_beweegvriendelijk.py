@@ -9,8 +9,9 @@ gecategoriseerd. De ratio's per buurt worden berekend met
 over onbegroeidterreindeel-verharding) niet dubbel tellen.
 """
 import logging
+import os
 from concurrent.futures import ProcessPoolExecutor
-from typing import Any, Iterable, Optional
+from typing import Any, Iterable, Optional, Type
 
 import geopandas as gpd
 import pandas as pd
@@ -18,8 +19,10 @@ from shapely import errors as se
 from shapely.geometry.base import BaseGeometry
 from shapely.ops import unary_union
 
+from adapters.dsa import DSA
 from domein.bgt_categorisatie import pas_categorisatie_toe, structure
 from domein.entiteiten import BeweegvriendelijkheidPerBuurt, Buurt
+from domein.porten import BuitensportenPoort
 from usecases.initialiseer_data import load_and_initialise_gemeente_data
 
 logger = logging.getLogger(__name__)
@@ -194,6 +197,16 @@ features = ['auto',
        'buitengebied_buitensport', 'gemengd', 'buitengebied', 'buitengebied_spelen', 'buitengebied_agrarisch', 'buitengebied_natuur']
 
 
+def _default_buitensporten_klasse() -> Optional[Type[BuitensportenPoort]]:
+    """Retourneer ``DSA`` als de vereiste env-vars aanwezig zijn,
+    anders ``None``. Wordt gebruikt om DSA-buitensporten automatisch
+    mee te nemen wanneer de gebruiker credentials heeft, zonder dat
+    testen die geen DSA hebben eromheen breken."""
+    if os.getenv("DSA_KEY") and os.getenv("DSA_MAIL"):
+        return DSA
+    return None
+
+
 def bereken_beweegvriendelijkheid(
     gemeente_code: str,
     **adapter_kwargs: Any,
@@ -205,10 +218,15 @@ def bereken_beweegvriendelijkheid(
     :param adapter_kwargs: extra keyword-argumenten die worden
         doorgegeven aan ``load_and_initialise_gemeente_data`` om
         adapters te vervangen (dependency injection voor tests).
+        Wanneer ``buitensporten_klasse`` niet is meegegeven wordt DSA
+        automatisch gebruikt als de env-vars ``DSA_KEY`` en
+        ``DSA_MAIL`` aanwezig zijn.
     :returns: lijst van ``BeweegvriendelijkheidPerBuurt``-entiteiten,
         een per buurt in de gemeente. Voor CSV- of Parquet-export:
         gebruik ``naar_dataframe``.
     """
+    if 'buitensporten_klasse' not in adapter_kwargs:
+        adapter_kwargs['buitensporten_klasse'] = _default_buitensporten_klasse()
     gemeente_data = load_and_initialise_gemeente_data(gemeente_code, **adapter_kwargs)
     df = feature_engineering(
         gemeente_data['bgt_df'],
