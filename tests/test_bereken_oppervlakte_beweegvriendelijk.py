@@ -15,6 +15,7 @@ from usecases.bereken_oppervlakte_beweegvriendelijk import (
     bereken_beweegvriendelijkheid,
     bereken_beweegvriendelijkheid_voor_gemeenten,
     naar_dataframe,
+    naar_dataframe_beperkt,
 )
 
 
@@ -120,7 +121,7 @@ class _FakeBGT:
 
 
 class _FakeSpeelplekken:
-    def __init__(self, gemeente_code: str, geometry) -> None:
+    def __init__(self, gemeente_code: str, geometry, **kwargs) -> None:
         pass
 
     def get_alle(self) -> gpd.GeoDataFrame:
@@ -191,6 +192,27 @@ def test_naar_dataframe_produceert_long_format():
 def test_naar_dataframe_op_lege_lijst_geeft_lege_dataframe():
     df = naar_dataframe([])
     assert df.empty
+
+
+def test_naar_dataframe_beperkt_produceert_vijf_kolommen():
+    resultaten = bereken_beweegvriendelijkheid(
+        "GM9999",
+        grenzen_klasse=_FakeBestuurlijkeGrenzen,
+        bgt_klasse=_FakeBGT,
+        speelplekken_klasse=_FakeSpeelplekken,
+        buitensporten_klasse=None,
+    )
+    df = naar_dataframe_beperkt(resultaten)
+
+    # Één rij per buurt (geen area/relative-split), vijf kolommen
+    assert len(df) == 1
+    assert list(df.columns) == ['buurtcode', 'buurtnaam', 'gemeentecode', 'gemeentenaam', 'perc_bvo']
+    rij = df.iloc[0]
+    assert rij['buurtnaam'] == 'Testbuurt'
+    assert rij['gemeentenaam'] == 'Testgemeente'
+    # De fake heeft alleen groen en auto, geen actief-transport of spelen,
+    # dus rec_actief == 0 en dus perc_bvo == 0.
+    assert rij['perc_bvo'] == pytest.approx(0.0)
 
 
 # --- bereken_beweegvriendelijkheid_voor_gemeenten --------------------

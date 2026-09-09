@@ -11,6 +11,7 @@ over onbegroeidterreindeel-verharding) niet dubbel tellen.
 import logging
 import os
 from concurrent.futures import ProcessPoolExecutor
+from functools import partial
 from typing import Any, Iterable, Optional, Type
 
 import geopandas as gpd
@@ -21,7 +22,7 @@ from shapely.ops import unary_union
 
 from adapters.dsa import DSA
 from domein.bgt_categorisatie import pas_categorisatie_toe, structure
-from domein.entiteiten import BeweegvriendelijkheidPerBuurt, Buurt
+from domein.entiteiten import BeweegvriendelijkheidPerBuurt, Buurt, Gemeente
 from domein.porten import BuitensportenPoort
 from usecases.initialiseer_data import load_and_initialise_gemeente_data
 
@@ -245,12 +246,13 @@ def bereken_beweegvriendelijkheid(
     df['rec_inactief'] = df['rec_auto'] + df['rec_overig']
     df['rec_actief'] = df['rec_actief_transport'] + df['rec_spelen']
 
-    return _dataframe_naar_resultaten(df, gemeente_data['buurten'])
+    return _dataframe_naar_resultaten(df, gemeente_data['buurten'], gemeente_data['gemeente'])
 
 
 def _dataframe_naar_resultaten(
     df: pd.DataFrame,
     buurten: list[Buurt],
+    gemeente: Gemeente,
 ) -> list[BeweegvriendelijkheidPerBuurt]:
     """Converteer het long-format DataFrame (met stat='area' en
     stat='relative'-rijen) naar een lijst domein-entiteiten."""
@@ -268,10 +270,20 @@ def _dataframe_naar_resultaten(
 
         resultaten.append(BeweegvriendelijkheidPerBuurt(
             buurt=buurt,
+            gemeente=gemeente,
             absoluut_m2={k: float(area_rij[k]) for k in feature_kolommen},
             relatief_aandeel={k: float(relatief_rij[k]) for k in feature_kolommen},
         ))
     return resultaten
+
+
+_PICKLEBARE_PRIMITIEVEN = (bool, str, int, float, type(None))
+
+
+def _kwargs_zijn_picklebaar(kwargs: dict) -> bool:
+    """Heuristiek: alleen primitieve waarden gaan veilig door een
+    ProcessPoolExecutor. Adapter-classes of fakes (nested classes) niet."""
+    return all(isinstance(v, _PICKLEBARE_PRIMITIEVEN) for v in kwargs.values())
 
 
 def bereken_beweegvriendelijkheid_voor_gemeenten(
@@ -284,19 +296,18 @@ def bereken_beweegvriendelijkheid_voor_gemeenten(
 
     :param gemeente_codes: lijst van gemeentecodes inclusief prefix.
     :param workers: aantal parallelle processen. ``None`` gebruikt alle
-        beschikbare CPU-cores; ``1`` forceert serieel. Bij aanwezige
-        ``adapter_kwargs`` (dependency injection, bijv. tests) wordt
-        altijd serieel gedraaid omdat fakes typisch niet picklebaar
-        zijn.
+        beschikbare CPU-cores; ``1`` forceert serieel.
     :param adapter_kwargs: extra keyword-argumenten voor
-        ``bereken_beweegvriendelijkheid`` (worden alleen doorgegeven in
-        het seriele pad).
+        ``bereken_beweegvriendelijkheid``. Primitieve waarden (bool,
+        str, int, float, None) gaan mee in het parallelle pad; als er
+        niet-picklebare waarden inzitten (bijv. fake adapter-classes
+        in tests) wordt automatisch serieel gedraaid.
     :returns: samengevoegde lijst van ``BeweegvriendelijkheidPerBuurt``
         over alle gemeenten.
     """
     unieke_codes = list(dict.fromkeys(gemeente_codes))
 
-    if workers == 1 or adapter_kwargs:
+    if workers == 1 or not _kwargs_zijn_picklebaar(adapter_kwargs):
         resultaten: list[BeweegvriendelijkheidPerBuurt] = []
         for code in unieke_codes:
             resultaten.extend(bereken_beweegvriendelijkheid(code, **adapter_kwargs))
@@ -304,15 +315,17 @@ def bereken_beweegvriendelijkheid_voor_gemeenten(
 
     logger.info("Parallelle berekening voor %d gemeente(n): %s",
                 len(unieke_codes), ", ".join(unieke_codes))
+    target = partial(bereken_beweegvriendelijkheid, **adapter_kwargs)
     with ProcessPoolExecutor(max_workers=workers) as pool:
-        deelresultaten = pool.map(bereken_beweegvriendelijkheid, unieke_codes)
+        deelresultaten = pool.map(target, unieke_codes)
     return [r for lijst in deelresultaten for r in lijst]
 
 
 def naar_dataframe(resultaten: list[BeweegvriendelijkheidPerBuurt]) -> pd.DataFrame:
     """Zet een lijst ``BeweegvriendelijkheidPerBuurt`` om naar een
     long-format DataFrame met per buurt twee rijen (``stat == 'area'``
-    en ``stat == 'relative'``). Bedoeld voor CSV- of Parquet-export."""
+    en ``stat == 'relative'``). Bedoeld voor volledige CSV- of
+    Parquet-export."""
     rijen = []
     for r in resultaten:
         buurt_meta = {
@@ -320,9 +333,29 @@ def naar_dataframe(resultaten: list[BeweegvriendelijkheidPerBuurt]) -> pd.DataFr
             'buurtnaam': r.buurt.naam,
             'wijkcode': r.buurt.wijkcode,
             'gemeentecode': r.buurt.gemeentecode,
+            'gemeentenaam': r.gemeente.naam,
         }
         rijen.append({**buurt_meta, 'stat': 'area', **r.absoluut_m2})
         rijen.append({**buurt_meta, 'stat': 'relative', **r.relatief_aandeel})
+    return pd.DataFrame(rijen)
+
+
+def naar_dataframe_beperkt(resultaten: list[BeweegvriendelijkheidPerBuurt]) -> pd.DataFrame:
+    """Zet een lijst ``BeweegvriendelijkheidPerBuurt`` om naar een
+    beknopt DataFrame met een rij per buurt en alleen de kolommen
+    ``buurtcode``, ``buurtnaam``, ``gemeentecode``, ``gemeentenaam``
+    en ``perc_bvo`` (percentage beweegvriendelijke ruimte, afgeleid
+    van ``rec_actief`` als aandeel maal 100)."""
+    rijen = [
+        {
+            'buurtcode': r.buurt.code,
+            'buurtnaam': r.buurt.naam,
+            'gemeentecode': r.buurt.gemeentecode,
+            'gemeentenaam': r.gemeente.naam,
+            'perc_bvo': r.relatief_aandeel.get('rec_actief', 0.0) * 100,
+        }
+        for r in resultaten
+    ]
     return pd.DataFrame(rijen)
 
 

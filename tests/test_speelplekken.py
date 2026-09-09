@@ -55,12 +55,12 @@ def _schrijf_bronnen(data_path: Path, gemeente_code: str, gemeente_geometry: Pol
     bgt.to_parquet(data_path / "bgt" / "gemeenten" / f"{gemeente_code}_bgt_playgrounds_parsed.parquet")
 
 
-def test_parser_combineert_drie_bronnen_en_filtert_op_geometrie(tmp_path: Path):
+def test_parser_combineert_drie_bronnen_met_toestemming(tmp_path: Path):
     gemeente_geometry = box(0, 0, 100, 100)
     _schrijf_bronnen(tmp_path, "GM9999", gemeente_geometry)
     parser = SpeelplekkenParser(data_path=str(tmp_path))
 
-    df = parser.parse("GM9999", gemeente_geometry)
+    df = parser.parse("GM9999", gemeente_geometry, toestemming_buitenspeelkaart=True)
 
     # 1 buitenspeelkaart-binnen + 1 osm + 1 bgt = 3; de buitenspeelkaart-
     # feature buiten de gemeente is uitgefilterd.
@@ -69,24 +69,43 @@ def test_parser_combineert_drie_bronnen_en_filtert_op_geometrie(tmp_path: Path):
     assert namen == ['OSM speelplek', 'Speelplek binnen', 'from_bgt']
 
 
+def test_parser_slaat_buitenspeelkaart_over_zonder_toestemming(tmp_path: Path):
+    gemeente_geometry = box(0, 0, 100, 100)
+    _schrijf_bronnen(tmp_path, "GM9999", gemeente_geometry)
+    parser = SpeelplekkenParser(data_path=str(tmp_path))
+
+    # Standaard is toestemming_buitenspeelkaart=False.
+    df = parser.parse("GM9999", gemeente_geometry)
+
+    # Alleen OSM en BGT-speelvoorziening; geen buitenspeelkaart-feature.
+    assert len(df) == 2
+    namen = sorted(df['naam'].tolist())
+    assert namen == ['OSM speelplek', 'from_bgt']
+
+
 def test_parser_zet_alle_geometrieen_om_naar_punt(tmp_path: Path):
     gemeente_geometry = box(0, 0, 100, 100)
     _schrijf_bronnen(tmp_path, "GM9999", gemeente_geometry)
     parser = SpeelplekkenParser(data_path=str(tmp_path))
 
-    df = parser.parse("GM9999", gemeente_geometry)
+    df = parser.parse("GM9999", gemeente_geometry, toestemming_buitenspeelkaart=True)
 
     assert all(g.geom_type == 'Point' for g in df['geometry'])
 
 
-def test_parser_cacht_en_hergebruikt_bij_tweede_aanroep(tmp_path: Path):
+def test_parser_cacht_apart_per_toestemming(tmp_path: Path):
     gemeente_geometry = box(0, 0, 100, 100)
     _schrijf_bronnen(tmp_path, "GM9999", gemeente_geometry)
     parser = SpeelplekkenParser(data_path=str(tmp_path))
 
-    df1 = parser.parse("GM9999", gemeente_geometry)
-    cache = tmp_path / "processed" / "gemeenten" / "GM9999" / "speelplekken.parquet"
-    assert cache.exists()
+    df_ja = parser.parse("GM9999", gemeente_geometry, toestemming_buitenspeelkaart=True)
+    df_nee = parser.parse("GM9999", gemeente_geometry, toestemming_buitenspeelkaart=False)
 
-    df2 = parser.parse("GM9999", gemeente_geometry)
-    assert len(df1) == len(df2)
+    cache_dir = tmp_path / "processed" / "gemeenten" / "GM9999"
+    assert (cache_dir / "speelplekken.parquet").exists()
+    assert (cache_dir / "speelplekken_zonder_buitenspeelkaart.parquet").exists()
+
+    # Tweede aanroep uit cache: zelfde lengtes.
+    df_ja2 = parser.parse("GM9999", gemeente_geometry, toestemming_buitenspeelkaart=True)
+    assert len(df_ja) == len(df_ja2)
+    assert len(df_ja) != len(df_nee)

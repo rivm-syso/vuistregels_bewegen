@@ -1,7 +1,7 @@
 """Adapter voor speelpleklocaties. Combineert drie bronnen:
-Buitenspeelkaart (jantje beton / kern-registratie), OpenStreetMap
-(Geofabrik-shapefiles per provincie), en de speelvoorzieningen die
-door de BGT-adapter zijn afgezonderd.
+Buitenspeelkaart (optioneel, vereist expliciete toestemming van de
+gebruiker), OpenStreetMap (Geofabrik-shapefiles per provincie), en de
+speelvoorzieningen die door de BGT-adapter zijn afgezonderd.
 
 Opgesplitst in drie verantwoordelijkheden:
 
@@ -94,26 +94,43 @@ class SpeelplekkenParser():
     def __init__(self, data_path: str = DATA_PATH) -> None:
         self.data_path = data_path
 
-    def parse(self, gemeente_code: str, geometry: BaseGeometry) -> gpd.GeoDataFrame:
+    def parse(
+        self,
+        gemeente_code: str,
+        geometry: BaseGeometry,
+        toestemming_buitenspeelkaart: bool = False,
+    ) -> gpd.GeoDataFrame:
         """Retourneer de gecombineerde speelpleklocaties voor deze
         gemeente. Bouwt de gecachte parquet wanneer die nog niet
-        bestaat."""
-        cache_pad = self._cache_pad(gemeente_code)
+        bestaat. Bij ``toestemming_buitenspeelkaart=False`` wordt de
+        Buitenspeelkaart-bron overgeslagen en een aparte cache
+        gebruikt zodat toestemming en niet-toestemming naast elkaar
+        kunnen bestaan."""
+        cache_pad = self._cache_pad(gemeente_code, toestemming_buitenspeelkaart)
         if os.path.exists(cache_pad):
             return gpd.read_parquet(cache_pad)
-        return self._bouw_en_cache(gemeente_code, geometry)
+        return self._bouw_en_cache(gemeente_code, geometry, toestemming_buitenspeelkaart)
 
-    def _bouw_en_cache(self, gemeente_code: str, geometry: BaseGeometry) -> gpd.GeoDataFrame:
-        """Combineer de drie bronnen tot één GeoDataFrame met
-        puntgeometrie en cache het resultaat als parquet."""
-        speelplekken_df = pd.concat([
-            self._buitenspeelkaart_binnen(geometry),
+    def _bouw_en_cache(
+        self,
+        gemeente_code: str,
+        geometry: BaseGeometry,
+        toestemming_buitenspeelkaart: bool,
+    ) -> gpd.GeoDataFrame:
+        """Combineer de bronnen tot één GeoDataFrame met puntgeometrie
+        en cache het resultaat als parquet. Buitenspeelkaart wordt
+        alleen opgenomen wanneer daar expliciet toestemming voor is."""
+        bronnen = [
             self._osm_binnen(geometry),
             self._bgt_speelvoorzieningen(gemeente_code),
-        ], ignore_index=True)
+        ]
+        if toestemming_buitenspeelkaart:
+            bronnen.insert(0, self._buitenspeelkaart_binnen(geometry))
+
+        speelplekken_df = pd.concat(bronnen, ignore_index=True)
         speelplekken_df['geometry'] = speelplekken_df['geometry'].apply(_naar_punt)
 
-        cache_pad = self._cache_pad(gemeente_code)
+        cache_pad = self._cache_pad(gemeente_code, toestemming_buitenspeelkaart)
         if 'processed' not in os.listdir(self.data_path):
             os.mkdir(f"{self.data_path}/processed")
             os.mkdir(f"{self.data_path}/processed/gemeenten")
@@ -122,8 +139,9 @@ class SpeelplekkenParser():
         speelplekken_df.to_parquet(cache_pad)
         return speelplekken_df
 
-    def _cache_pad(self, gemeente_code: str) -> str:
-        return f"{self.data_path}/processed/gemeenten/{gemeente_code}/speelplekken.parquet"
+    def _cache_pad(self, gemeente_code: str, toestemming_buitenspeelkaart: bool) -> str:
+        suffix = "" if toestemming_buitenspeelkaart else "_zonder_buitenspeelkaart"
+        return f"{self.data_path}/processed/gemeenten/{gemeente_code}/speelplekken{suffix}.parquet"
 
     def _buitenspeelkaart_binnen(self, geometry: BaseGeometry) -> gpd.GeoDataFrame:
         """Filter de landelijke buitenspeelkaart op features binnen de
@@ -174,17 +192,24 @@ class Speelplekken():
         self,
         gemeente_code: str,
         geometry: BaseGeometry,
+        toestemming_buitenspeelkaart: bool = False,
         downloader: Optional[SpeelplekkenDownloader] = None,
         parser: Optional[SpeelplekkenParser] = None,
     ) -> None:
         self.gemeente_code = gemeente_code
         self.geometry = geometry
+        self.toestemming_buitenspeelkaart = toestemming_buitenspeelkaart
         self._downloader = downloader or SpeelplekkenDownloader()
         self._parser = parser or SpeelplekkenParser()
-        self._downloader.download_buitenspeelkaart()
+        if self.toestemming_buitenspeelkaart:
+            self._downloader.download_buitenspeelkaart()
         self._downloader.download_osm_playgrounds()
 
     def get_alle(self) -> gpd.GeoDataFrame:
         """Retourneer de gecombineerde speelpleklocaties voor deze
         gemeente."""
-        return self._parser.parse(self.gemeente_code, self.geometry)
+        return self._parser.parse(
+            self.gemeente_code,
+            self.geometry,
+            toestemming_buitenspeelkaart=self.toestemming_buitenspeelkaart,
+        )

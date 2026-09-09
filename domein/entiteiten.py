@@ -32,6 +32,8 @@ class BeweegvriendelijkheidPerBuurt:
     buurt.
 
     :param buurt: de buurt waarop deze uitkomst betrekking heeft.
+    :param gemeente: de gemeente waarin de buurt valt (bevat naam
+        en provincie).
     :param absoluut_m2: per (rec_)feature het aandeel in m². Bevat
         zowel raw categorieen (bijv. ``'groen'``, ``'fiets'``) als
         aggregaties (``'rec_auto'``, ``'rec_actief_transport'``,
@@ -40,6 +42,7 @@ class BeweegvriendelijkheidPerBuurt:
         als aandeel (tussen 0 en 1) van de totale gebiedsoppervlakte.
     """
     buurt: "Buurt"
+    gemeente: "Gemeente"
     absoluut_m2: dict
     relatief_aandeel: dict
 

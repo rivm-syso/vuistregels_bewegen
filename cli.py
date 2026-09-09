@@ -15,7 +15,7 @@ import pandas as pd
 
 from usecases.bereken_oppervlakte_beweegvriendelijk import (
     bereken_beweegvriendelijkheid_voor_gemeenten,
-    naar_dataframe,
+    naar_dataframe_beperkt,
 )
 
 
@@ -23,18 +23,20 @@ def _cmd_bereken_beweegvriendelijk(args: argparse.Namespace) -> None:
     """Voer de use case uit voor een of meer gemeenten en toon of
     schrijf het resultaat weg."""
     codes = _verzamel_gemeente_codes(args.gemeente_codes, args.gemeenten_csv)
-    resultaten = bereken_beweegvriendelijkheid_voor_gemeenten(codes, workers=args.workers)
+    resultaten = bereken_beweegvriendelijkheid_voor_gemeenten(
+        codes,
+        workers=args.workers,
+        toestemming_buitenspeelkaart=args.toestemming_buitenspeelkaart,
+    )
+    df = naar_dataframe_beperkt(resultaten)
     if args.uit:
-        df = naar_dataframe(resultaten)
         if args.uit.endswith(".parquet"):
             df.to_parquet(args.uit)
         else:
             df.to_csv(args.uit, index=False)
         print(f"Resultaat opgeslagen naar {args.uit} ({len(resultaten)} buurten uit {len(codes)} gemeente(n))")
     else:
-        print(f"{'gemeentecode':13s}  {'buurtnaam':35s}  {'rec_total':>12s}  {'rec_actief':>12s}")
-        for r in resultaten[:20]:
-            print(f"{r.buurt.gemeentecode:13s}  {r.buurt.naam:35s}  {r.absoluut_m2['rec_total']:12.6e}  {r.absoluut_m2['rec_actief']:12.6f}")
+        print(df.head(20).to_string(index=False))
 
 
 def _verzamel_gemeente_codes(positional: list, csv_pad: Optional[str]) -> list[str]:
@@ -91,6 +93,13 @@ def bouw_parser() -> argparse.ArgumentParser:
         type=int,
         default=None,
         help="Aantal parallelle workers (standaard: aantal CPU-cores; 1 = serieel).",
+    )
+    bw.add_argument(
+        "--toestemming-buitenspeelkaart",
+        action="store_true",
+        default=False,
+        help="Zet aan als je toestemming hebt om Buitenspeelkaart-data mee te nemen. "
+             "Standaard uit; OSM en BGT-speelvoorzieningen worden altijd meegenomen.",
     )
     bw.add_argument(
         "--uit",
