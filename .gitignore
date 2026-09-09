@@ -23,6 +23,9 @@ data/
 .vscode/
 .idea/
 
+# macOS artefacten
+.DS_Store
+
 # Build artefacten
 build/
 dist/
