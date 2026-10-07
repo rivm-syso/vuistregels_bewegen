@@ -10,7 +10,7 @@ over onbegroeidterreindeel-verharding) niet dubbel tellen.
 """
 import logging
 import os
-from concurrent.futures import ProcessPoolExecutor
+from concurrent.futures import ProcessPoolExecutor, as_completed
 from functools import partial
 from typing import Any, Iterable, Optional, Type
 
@@ -208,6 +208,17 @@ def _default_buitensporten_klasse() -> Optional[Type[BuitensportenPoort]]:
     return None
 
 
+def _default_toestemming_buitenspeelkaart() -> bool:
+    """Lees de env-var ``TOESTEMMING_BUITENSPEELKAART`` als boolean.
+    Waarden ``true``, ``1``, ``yes``, ``ja`` (hoofdletter-ongevoelig)
+    worden als True geinterpreteerd; alle andere waarden en afwezigheid
+    van de variabele als False."""
+    waarde = os.getenv("TOESTEMMING_BUITENSPEELKAART")
+    if waarde is None:
+        return False
+    return waarde.strip().lower() in ("true", "1", "yes", "ja", "y", "j", "t")
+
+
 def bereken_beweegvriendelijkheid(
     gemeente_code: str,
     **adapter_kwargs: Any,
@@ -228,6 +239,8 @@ def bereken_beweegvriendelijkheid(
     """
     if 'buitensporten_klasse' not in adapter_kwargs:
         adapter_kwargs['buitensporten_klasse'] = _default_buitensporten_klasse()
+    if 'toestemming_buitenspeelkaart' not in adapter_kwargs:
+        adapter_kwargs['toestemming_buitenspeelkaart'] = _default_toestemming_buitenspeelkaart()
     gemeente_data = load_and_initialise_gemeente_data(gemeente_code, **adapter_kwargs)
     df = feature_engineering(
         gemeente_data['bgt_df'],
@@ -281,8 +294,6 @@ _PICKLEBARE_PRIMITIEVEN = (bool, str, int, float, type(None))
 
 
 def _kwargs_zijn_picklebaar(kwargs: dict) -> bool:
-    """Heuristiek: alleen primitieve waarden gaan veilig door een
-    ProcessPoolExecutor. Adapter-classes of fakes (nested classes) niet."""
     return all(isinstance(v, _PICKLEBARE_PRIMITIEVEN) for v in kwargs.values())
 
 
@@ -310,15 +321,29 @@ def bereken_beweegvriendelijkheid_voor_gemeenten(
     if workers == 1 or not _kwargs_zijn_picklebaar(adapter_kwargs):
         resultaten: list[BeweegvriendelijkheidPerBuurt] = []
         for code in unieke_codes:
-            resultaten.extend(bereken_beweegvriendelijkheid(code, **adapter_kwargs))
+            try:
+                resultaten.extend(bereken_beweegvriendelijkheid(code, **adapter_kwargs))
+            except Exception as e:
+                logger.warning("Gemeente %s overgeslagen: %s", code, e)
         return resultaten
 
     logger.info("Parallelle berekening voor %d gemeente(n): %s",
                 len(unieke_codes), ", ".join(unieke_codes))
     target = partial(bereken_beweegvriendelijkheid, **adapter_kwargs)
+    resultaten = []
+    mislukt: list[str] = []
     with ProcessPoolExecutor(max_workers=workers) as pool:
-        deelresultaten = pool.map(target, unieke_codes)
-    return [r for lijst in deelresultaten for r in lijst]
+        futures = {pool.submit(target, code): code for code in unieke_codes}
+        for future in as_completed(futures):
+            code = futures[future]
+            try:
+                resultaten.extend(future.result())
+            except Exception as e:
+                mislukt.append(code)
+                logger.warning("Gemeente %s overgeslagen: %s", code, e)
+    if mislukt:
+        logger.warning("%d gemeente(n) mislukt: %s", len(mislukt), ", ".join(mislukt))
+    return resultaten
 
 
 def naar_dataframe(resultaten: list[BeweegvriendelijkheidPerBuurt]) -> pd.DataFrame:

@@ -53,7 +53,9 @@ class BgtDownloader():
         featuretypes: Optional[list] = None,
     ) -> None:
         """Zorg dat de GML-bestanden voor deze gemeente op disk staan.
-        Doet niets wanneer de raw-parquet of de GML-map al bestaat."""
+        Doet niets wanneer de raw-parquet of de GML-map al bestaat.
+        Ruimt half-state op bij mislukte download zodat een retry
+        vanaf een schone situatie start."""
         raw_parquet = f"{self.data_path}/bgt/gemeenten/{gemeente_code}_bgt_features.parquet"
         gml_dir = f"{self.data_path}/bgt/gemeenten/{gemeente_code}"
         if os.path.exists(raw_parquet) or os.path.exists(gml_dir):
@@ -62,9 +64,19 @@ class BgtDownloader():
             os.mkdir(f"{self.data_path}/bgt")
             os.mkdir(f"{self.data_path}/bgt/gemeenten")
         zip_pad = f"{self.data_path}/bgt/{gemeente_code}.zip"
-        self._download_zip_via_api(zip_pad, self._bounding_box(geometry).wkt, featuretypes)
-        unzip_file(zip_pad, gml_dir)
-        os.remove(zip_pad)
+        try:
+            self._download_zip_via_api(zip_pad, self._bounding_box(geometry).wkt, featuretypes)
+            unzip_file(zip_pad, gml_dir)
+            os.remove(zip_pad)
+        except Exception:
+            # Cleanup: laat geen half-uitgepakte GML-map of zip achter.
+            # Anders slaat een retry de download over en crasht bij het
+            # lezen van een leeg/corrupt GML-bestand.
+            if os.path.exists(zip_pad):
+                os.remove(zip_pad)
+            if os.path.exists(gml_dir):
+                shutil.rmtree(gml_dir)
+            raise
 
     def _download_zip_via_api(
         self,
@@ -89,14 +101,21 @@ class BgtDownloader():
         download_link = requests.post(prepare_download_url, data=json.dumps(post_params), headers=headers)
 
         if download_link.status_code != 202:
-            raise RuntimeError("Fout bij aanvragen BGT-download")
+            raise RuntimeError(
+                f"BGT-download aanvraag mislukt: status {download_link.status_code}, "
+                f"body {download_link.text[:200]!r}"
+            )
         download_status_url = f"{API_URL}{download_link.json()['_links']['status']['href']}"
         download_status = requests.get(download_status_url)
         while download_status.status_code == 200:
             download_status = requests.get(download_status_url)
             time.sleep(1)
-        if download_status.status_code == 201:
-            file_downloader(f"{API_URL}{download_status.json()['_links']['download']['href']}", local_filename)
+        if download_status.status_code != 201:
+            raise RuntimeError(
+                f"BGT-download niet voltooid: status {download_status.status_code}, "
+                f"body {download_status.text[:200]!r}"
+            )
+        file_downloader(f"{API_URL}{download_status.json()['_links']['download']['href']}", local_filename)
 
     def _bounding_box(self, geometry: BaseGeometry) -> Polygon:
         """Retourneer de axis-aligned bounding box van de gegeven

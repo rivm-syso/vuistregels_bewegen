@@ -79,6 +79,21 @@ class BestuurlijkeGrenzenParser():
             geometrie=rij['geometry'],
         )
 
+    def parse_alle_gemeenten(self) -> list[Gemeente]:
+        """Retourneer alle Nederlandse gemeenten als lijst van
+        domein-entiteiten."""
+        df_adm = self._laad_alle_gemeenten()
+        df_adm = self._normaliseer_gemeenten(df_adm)
+        return [
+            Gemeente(
+                code=rij['localId'],
+                naam=rij['gemeente'],
+                provincie=rij['provincie'],
+                geometrie=rij['geometry'],
+            )
+            for _, rij in df_adm.iterrows()
+        ]
+
     def parse_buurten(self, gemeente_code: str) -> list[Buurt]:
         """Retourneer alle buurten binnen ``gemeente_code`` als lijst
         van domein-entiteiten."""

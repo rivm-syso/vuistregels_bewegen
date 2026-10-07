@@ -1,6 +1,6 @@
 """Adapter voor speelpleklocaties. Combineert drie bronnen:
-Buitenspeelkaart (optioneel, vereist expliciete toestemming van de
-gebruiker), OpenStreetMap (Geofabrik-shapefiles per provincie), en de
+Buitenspeelkaart (optioneel, vereist expliciete toestemming van Speelplan),
+OpenStreetMap (Geofabrik-shapefiles per provincie), en de
 speelvoorzieningen die door de BGT-adapter zijn afgezonderd.
 
 Opgesplitst in drie verantwoordelijkheden:
@@ -10,8 +10,8 @@ Opgesplitst in drie verantwoordelijkheden:
 - ``SpeelplekkenParser``: filtert de landelijke bronnen op de
   buurt-geometrie, voegt de BGT-speelvoorzieningen toe, converteert
   alles naar puntgeometrie en cacht per gemeente (transformatie).
-- ``Speelplekken``: facade die downloader en parser combineert en de
-  ``SpeelplekkenPoort`` implementeert.
+- ``Speelplekken``: combineert downloader en parser combineert en
+implementeert ``SpeelplekkenPoort``.
 """
 import logging
 import os
@@ -22,7 +22,7 @@ import geopandas as gpd
 import pandas as pd
 import requests
 from shapely.geometry.base import BaseGeometry
-
+from dotenv import load_dotenv
 from instellingen import DATA_PATH
 
 from .utils import file_downloader, unzip_file
@@ -181,7 +181,7 @@ def _naar_punt(geometry: BaseGeometry) -> BaseGeometry:
 
 
 class Speelplekken():
-    """Facade voor speelpleklocaties. Combineert downloader en parser
+    """Combineert downloader en parser
     en implementeert ``SpeelplekkenPoort``.
 
     Downloader en parser zijn te vervangen via de constructor voor

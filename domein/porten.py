@@ -1,9 +1,6 @@
 """Poorten (Protocols) die de interface tussen use cases en adapters
-formaliseren. Adapters die deze Protocols implementeren zijn duck-typed
-compatibel; expliciete inheritance is niet nodig.
-
-Kleine, gefinaliseerde objecten (Gemeente, Buurt) worden retourneerd
-als domein-entiteiten. Grote feature-verzamelingen blijven
+formaliseren. Kleine, gefinaliseerde objecten (Gemeente, Buurt) worden
+geretourneerd als domein-entiteiten. Grote featureverzamelingen blijven
 GeoDataFrames.
 """
 from typing import Optional, Protocol, runtime_checkable

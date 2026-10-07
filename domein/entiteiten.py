@@ -34,12 +34,8 @@ class BeweegvriendelijkheidPerBuurt:
     :param buurt: de buurt waarop deze uitkomst betrekking heeft.
     :param gemeente: de gemeente waarin de buurt valt (bevat naam
         en provincie).
-    :param absoluut_m2: per (rec_)feature het aandeel in m². Bevat
-        zowel raw categorieen (bijv. ``'groen'``, ``'fiets'``) als
-        aggregaties (``'rec_auto'``, ``'rec_actief_transport'``,
-        ``'rec_total'``, ``'rec_inactief'``, ``'rec_actief'``).
-    :param relatief_aandeel: dezelfde keys als ``absoluut_m2``, maar
-        als aandeel (tussen 0 en 1) van de totale gebiedsoppervlakte.
+    :param absoluut_m2: absoluut m2 beweegvriendelijk.
+    :param relatief_aandeel: relatief deel buurt beweegvriendelijk.
     """
     buurt: "Buurt"
     gemeente: "Gemeente"
