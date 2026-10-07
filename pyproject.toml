@@ -4,7 +4,7 @@ version = "0.1.0"
 description = "Vuistregels voor beweegvriendelijke buitenruimte per gemeente/buurt."
 requires-python = ">=3.10"
 dependencies = [
-    "geopandas==1.1.1",
+    "geopandas==1.1.2",
     "shapely>=2.0",
     "pandas>=2.0",
     "pyarrow",
