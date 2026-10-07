@@ -48,6 +48,9 @@ TOESTEMMING_BUITENSPEELKAART=false
 
 Indien wel expliciete toestemming voor gebruik van Buitenspeelkaart, zet deze op true.
 
+In instellingen.py kan eventueel de map waar bestanden worden weggeschreven relatief
+t.o.v. pad waarvan gedraaid wordt worden aangegeven.
+
 ## Gebruik
 
 Per buurt voor een gemeente:
