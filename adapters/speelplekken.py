@@ -11,7 +11,7 @@ Opgesplitst in drie verantwoordelijkheden:
   buurt-geometrie, voegt de BGT-speelvoorzieningen toe, converteert
   alles naar puntgeometrie en cacht per gemeente (transformatie).
 - ``Speelplekken``: combineert downloader en parser combineert en
-implementeert ``SpeelplekkenPoort``.
+implementeert ``SpeelplekkenInterface``.
 """
 import logging
 import os
@@ -182,7 +182,7 @@ def _naar_punt(geometry: BaseGeometry) -> BaseGeometry:
 
 class Speelplekken():
     """Combineert downloader en parser
-    en implementeert ``SpeelplekkenPoort``.
+    en implementeert ``SpeelplekkenInterface``.
 
     Downloader en parser zijn te vervangen via de constructor voor
     tests of alternatieve bronnen.

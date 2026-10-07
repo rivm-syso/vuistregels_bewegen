@@ -9,7 +9,7 @@ Opgesplitst in drie verantwoordelijkheden:
 - ``BestuurlijkeGrenzenParser``: leest de gecachte bestanden en zet ze
   om naar domein-entiteiten (transformatie).
 - ``BestuurlijkeGrenzen``: facade die downloader en parser combineert
-  en de ``BestuurlijkeGrenzenPoort`` implementeert.
+  en de ``BestuurlijkeGrenzenInterface`` implementeert.
 """
 import logging
 import os
@@ -135,7 +135,7 @@ class BestuurlijkeGrenzenParser():
 
 class BestuurlijkeGrenzen():
     """Facade voor Kadaster/CBS bestuurlijke grenzen. Combineert
-    downloader en parser en implementeert ``BestuurlijkeGrenzenPoort``.
+    downloader en parser en implementeert ``BestuurlijkeGrenzenInterface``.
 
     Downloader en parser zijn te vervangen via de constructor voor
     tests of alternatieve bronnen.

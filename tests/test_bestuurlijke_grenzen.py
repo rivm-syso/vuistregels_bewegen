@@ -13,7 +13,7 @@ from adapters.bestuurlijke_grenzen import (
     BestuurlijkeGrenzenParser,
 )
 from domein.entiteiten import Buurt
-from domein.porten import BestuurlijkeGrenzenPoort
+from domein.interfaces import BestuurlijkeGrenzenInterface
 
 
 def _schrijf_buurten_fixture(data_path: Path, gemeente_code: str) -> None:
@@ -83,4 +83,4 @@ def test_facade_delegeert_naar_geinjecteerde_parser(tmp_path: Path):
 
     buurten = adapter.get_buurten()
     assert len(buurten) == 2
-    assert isinstance(adapter, BestuurlijkeGrenzenPoort)
+    assert isinstance(adapter, BestuurlijkeGrenzenInterface)

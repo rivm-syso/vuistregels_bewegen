@@ -10,7 +10,7 @@ Opgesplitst in drie verantwoordelijkheden:
   splitst speelvoorzieningen af, en cacht per stap als parquet
   (transformatie).
 - ``BGT``: facade die downloader en parser combineert en de
-  ``BgtPoort`` implementeert.
+  ``BgtInterface`` implementeert.
 """
 import json
 import os
@@ -195,7 +195,7 @@ class BgtParser():
 
 class BGT():
     """Facade voor BGT-features van één gemeente. Combineert downloader
-    en parser en implementeert ``BgtPoort``.
+    en parser en implementeert ``BgtInterface``.
 
     Downloader en parser zijn te vervangen via de constructor voor
     tests of alternatieve bronnen.

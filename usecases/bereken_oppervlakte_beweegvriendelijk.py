@@ -23,7 +23,7 @@ from shapely.ops import unary_union
 from adapters.dsa import DSA
 from domein.bgt_categorisatie import pas_categorisatie_toe, structure
 from domein.entiteiten import BeweegvriendelijkheidPerBuurt, Buurt, Gemeente
-from domein.porten import BuitensportenPoort
+from domein.interfaces import BuitensportenInterface
 from usecases.initialiseer_data import load_and_initialise_gemeente_data
 
 logger = logging.getLogger(__name__)
@@ -191,14 +191,14 @@ def transform_buurt_data(buurten: list[Buurt], df: gpd.GeoDataFrame) -> pd.DataF
     return pd.concat([create_area_and_relative_df(stat, combined_df) for stat in ['area', 'relative']]).reset_index()
 
 
-features = ['auto',
-       'fiets', 'groen', 'groen_buitensport', 'groen_groenblauw',
-       'groen_spelen', 'overig_buitensport', 'overig_spelen',
-       'overig_verharding', 'parkeren', 'verkeer', 'voetganger', 'water', 'OV',
-       'buitengebied_buitensport', 'gemengd', 'buitengebied', 'buitengebied_spelen', 'buitengebied_agrarisch', 'buitengebied_natuur']
+# Lijst van alle totaal_categorie-waarden die een rec_feature krijgen.
+# Afgeleid uit recoded_features zodat een categorie-toevoeging maar op
+# één plek hoeft (de recoded_features-mapping zelf). buitengebied_agrarisch
+# zit niet in deze lijst omdat agrarisch bewust wordt uitgesloten.
+features = [c for categorieen in recoded_features.values() for c in categorieen]
 
 
-def _default_buitensporten_klasse() -> Optional[Type[BuitensportenPoort]]:
+def _default_buitensporten_klasse() -> Optional[Type[BuitensportenInterface]]:
     """Retourneer ``DSA`` als de vereiste env-vars aanwezig zijn,
     anders ``None``. Wordt gebruikt om DSA-buitensporten automatisch
     mee te nemen wanneer de gebruiker credentials heeft, zonder dat

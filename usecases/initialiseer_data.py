@@ -10,20 +10,20 @@ from typing import Optional, Type
 from adapters.bestuurlijke_grenzen import BestuurlijkeGrenzen
 from adapters.bgt import BGT
 from adapters.speelplekken import Speelplekken
-from domein.porten import (
-    BestuurlijkeGrenzenPoort,
-    BgtPoort,
-    BuitensportenPoort,
-    SpeelplekkenPoort,
+from domein.interfaces import (
+    BestuurlijkeGrenzenInterface,
+    BgtInterface,
+    BuitensportenInterface,
+    SpeelplekkenInterface,
 )
 
 
 def load_and_initialise_gemeente_data(
     gemeente_code: str,
-    grenzen_klasse: Type[BestuurlijkeGrenzenPoort] = BestuurlijkeGrenzen,
-    bgt_klasse: Type[BgtPoort] = BGT,
-    speelplekken_klasse: Type[SpeelplekkenPoort] = Speelplekken,
-    buitensporten_klasse: Optional[Type[BuitensportenPoort]] = None,
+    grenzen_klasse: Type[BestuurlijkeGrenzenInterface] = BestuurlijkeGrenzen,
+    bgt_klasse: Type[BgtInterface] = BGT,
+    speelplekken_klasse: Type[SpeelplekkenInterface] = Speelplekken,
+    buitensporten_klasse: Optional[Type[BuitensportenInterface]] = None,
     toestemming_buitenspeelkaart: bool = False,
 ) -> dict:
     """Bundel de gemeente-brondata voor de gegeven gemeentecode.
