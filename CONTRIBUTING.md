@@ -8,7 +8,7 @@ respecteren.
 
 1. Clone de repo en maak een virtuele omgeving:
 
-   ```
+   ```bash
    git clone <repo-url>
    cd vuistregels
    python -m venv .venv
@@ -17,13 +17,13 @@ respecteren.
 
 2. Installeer de repo als package met dev-dependencies:
 
-   ```
+   ```bash
    python -m pip install -e ".[dev]"
    ```
 
 3. Draai de tests:
 
-   ```
+   ```bash
    python -m pytest
    ```
 
@@ -57,7 +57,7 @@ en alle bestaande code die je aanraakt.
 
 De repo volgt clean architecture in drie lagen:
 
-- `domein/`: entiteiten (`Gemeente`, `Buurt`, `Punt`), poorten
+- `domein/`: entiteiten (`Gemeente`, `Buurt`, `Punt`), interfaces
   (Protocols) en pure domeinkennis (BGT-categorisatie-regels).
 - `adapters/`: implementaties van de poorten, opgesplitst in
   Downloader (I/O), Parser (transformatie) en een facade-class die
@@ -67,7 +67,7 @@ De repo volgt clean architecture in drie lagen:
 
 Adapters retourneren waar zinvol domein-entiteiten (Gemeente, Buurt),
 en voor grote featureverzamelingen `GeoDataFrame` als werkende
-currency.
+"currency".
 
 ## Pull requests
 
@@ -76,8 +76,6 @@ currency.
 - Zorg dat `python -m pytest` groen is voordat je een PR aanmaakt.
 - Commit-berichten in het Nederlands, in de imperatief, kort en
   concreet ("Fix typo agragrisch", niet "typos gefixed").
-- Geen em-dash (het lange streepje). Gebruik komma, dubbele punt of
-  herformuleer.
 
 ## Vragen of ideeen
 

@@ -32,19 +32,25 @@ verhardingsvlak) tellen 1x dankzij een `unary_union`-benadering.
 
 Activeer een venv en installeer de repo als package:
 
-    python -m pip install -e .
+```bash
+python -m pip install -e .
+```
 
 Voor ontwikkeling (met tests):
 
-    python -m pip install -e ".[dev]"
+```bash
+python -m pip install -e ".[dev]"
+```
 
 Indien gebruikgemaakt wordt van de DSA (dsa.mulierinstituut.nl): 
 vraag bij het Mulier Instituut een API-key aan en vul het volgende in 
 een .env in:
 
+```bash
 DSA_KEY=xxxxxx
 DSA_MAIL=yyyy@zzzz.ext
 TOESTEMMING_BUITENSPEELKAART=false
+```
 
 Indien wel expliciete toestemming voor gebruik van Buitenspeelkaart, zet deze op true.
 
@@ -55,24 +61,34 @@ t.o.v. pad waarvan gedraaid wordt worden aangegeven.
 
 Per buurt voor een gemeente:
 
-    vuistregels bereken beweegvriendelijk GM1680
+```bash
+vuistregels bereken beweegvriendelijk GM1680
+```
 
 Meerdere gemeenten tegelijk (parallel):
 
-    vuistregels bereken beweegvriendelijk GM1680 GM0518 --workers 4
+```bash
+vuistregels bereken beweegvriendelijk GM1680 GM0518 --workers 4
+```
 
 Of lees gemeenten uit een CSV met kolom `gemeente_code`:
 
-    vuistregels bereken beweegvriendelijk --gemeenten-csv gemeenten.csv
+```bash
+vuistregels bereken beweegvriendelijk --gemeenten-csv gemeenten.csv
+```
 
 Resultaat wegschrijven in plaats van tonen:
 
-    vuistregels bereken beweegvriendelijk GM1680 --uit resultaat.csv
-    vuistregels bereken beweegvriendelijk GM1680 --uit resultaat.parquet
+```bash
+vuistregels bereken beweegvriendelijk GM1680 --uit resultaat.csv
+vuistregels bereken beweegvriendelijk GM1680 --uit resultaat.parquet
+```
 
 Zonder installatie werkt het ook direct vanuit de root:
 
-    python -m cli bereken beweegvriendelijk GM1680
+```bash
+python -m cli bereken beweegvriendelijk GM1680
+```
 
 ## Data
 
@@ -103,7 +119,7 @@ Clean architecture in drie lagen:
 
 - `domein/`: entiteiten (`Gemeente`, `Buurt`, `Punt`), poorten
   (Protocols) en pure domeinkennis (BGT-categorisatie-regels).
-- `adapters/`: implementaties van de poorten, opgesplitst in
+- `adapters/`: implementaties van de interfaces, opgesplitst in
   Downloader (I/O), Parser (transformatie) en een facade-class.
 - `usecases/`: business-logica die adapters via dependency injection
   gebruikt.
