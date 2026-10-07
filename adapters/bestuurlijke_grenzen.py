@@ -36,15 +36,14 @@ class BestuurlijkeGrenzenDownloader():
         """Download de landelijke gemeentegrenzen (administrative units)
         van Kadaster/PDOK wanneer die nog niet lokaal aanwezig zijn."""
         if not os.path.exists(f"{self.data_path}/bestuurlijkegrenzen/gemeenten"):
+            os.makedirs(self.data_path, exist_ok=True)
+            zip_pad = f"{self.data_path}/administrativeunits.zip"
             file_downloader(
                 "https://service.pdok.nl/kadaster/au/atom/v2_0/downloads/administrativeunits.zip",
-                "administrativeunits.zip",
+                zip_pad,
             )
-            unzip_file(
-                f"{self.data_path}/administrativeunits.zip",
-                f"{self.data_path}/bestuurlijkegrenzen/gemeenten",
-            )
-            os.remove(f"{self.data_path}/administrativeunits.zip")
+            unzip_file(zip_pad, f"{self.data_path}/bestuurlijkegrenzen/gemeenten")
+            os.remove(zip_pad)
 
     def download_buurt_grenzen(self, layer: str = "buurten") -> None:
         """Download de landelijke wijk- en buurtgrenzen van CBS/PDOK
