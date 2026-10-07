@@ -13,6 +13,7 @@ Opgesplitst in drie verantwoordelijkheden:
 """
 import logging
 import os
+import shutil
 from typing import Optional
 
 import geopandas as gpd
@@ -25,6 +26,20 @@ from .utils import file_downloader, unzip_file
 logger = logging.getLogger(__name__)
 
 
+def _zoek_administrativeunits_gml(data_path: str) -> Optional[str]:
+    """Zoek het administrativeunits-GML-bestand onder de gemeenten-cache.
+    De zip die PDOK aanbiedt bevat soms een subfolder; walk daarom
+    recursief."""
+    gemeenten_dir = f"{data_path}/bestuurlijkegrenzen/gemeenten"
+    if not os.path.exists(gemeenten_dir):
+        return None
+    for root, _, bestanden in os.walk(gemeenten_dir):
+        for naam in bestanden:
+            if naam.lower().endswith(".gml") and "administrativeunit" in naam.lower():
+                return os.path.join(root, naam)
+    return None
+
+
 class BestuurlijkeGrenzenDownloader():
     """Downloadt de landelijke gemeente- en buurtgrenzen naar disk.
     Idempotent: bestaande caches worden overgeslagen."""
@@ -34,16 +49,32 @@ class BestuurlijkeGrenzenDownloader():
 
     def download_gemeente_grenzen(self) -> None:
         """Download de landelijke gemeentegrenzen (administrative units)
-        van Kadaster/PDOK wanneer die nog niet lokaal aanwezig zijn."""
-        if not os.path.exists(f"{self.data_path}/bestuurlijkegrenzen/gemeenten"):
-            os.makedirs(self.data_path, exist_ok=True)
-            zip_pad = f"{self.data_path}/administrativeunits.zip"
+        van Kadaster/PDOK wanneer die nog niet lokaal aanwezig zijn.
+        Controleert op het aanwezige GML-bestand (niet alleen de dir)
+        zodat een lege of corrupte cache uit een eerdere mislukte run
+        wordt opgeruimd en opnieuw gedownload."""
+        if _zoek_administrativeunits_gml(self.data_path) is not None:
+            return
+
+        gemeenten_dir = f"{self.data_path}/bestuurlijkegrenzen/gemeenten"
+        if os.path.exists(gemeenten_dir):
+            shutil.rmtree(gemeenten_dir)
+
+        os.makedirs(self.data_path, exist_ok=True)
+        zip_pad = f"{self.data_path}/administrativeunits.zip"
+        try:
             file_downloader(
                 "https://service.pdok.nl/kadaster/au/atom/v2_0/downloads/administrativeunits.zip",
                 zip_pad,
             )
-            unzip_file(zip_pad, f"{self.data_path}/bestuurlijkegrenzen/gemeenten")
+            unzip_file(zip_pad, gemeenten_dir)
             os.remove(zip_pad)
+        except Exception:
+            if os.path.exists(zip_pad):
+                os.remove(zip_pad)
+            if os.path.exists(gemeenten_dir):
+                shutil.rmtree(gemeenten_dir)
+            raise
 
     def download_buurt_grenzen(self, layer: str = "buurten") -> None:
         """Download de landelijke wijk- en buurtgrenzen van CBS/PDOK
@@ -110,11 +141,17 @@ class BestuurlijkeGrenzenParser():
         ]
 
     def _laad_alle_gemeenten(self) -> gpd.GeoDataFrame:
-        """Lees de rauwe administrative-units GML in."""
-        return gpd.read_file(
-            f"{self.data_path}/bestuurlijkegrenzen/gemeenten/administrativeunits.gml",
-            layer="AdministrativeUnit",
-        )
+        """Lees de rauwe administrative-units GML in. Zoekt recursief
+        zodat zip-structuren met subfolder (zoals PDOK soms aanlevert)
+        ook werken."""
+        gml_pad = _zoek_administrativeunits_gml(self.data_path)
+        if gml_pad is None:
+            raise FileNotFoundError(
+                f"Geen administrativeunits-GML gevonden onder "
+                f"{self.data_path}/bestuurlijkegrenzen/gemeenten; "
+                f"ruim die map op en draai opnieuw."
+            )
+        return gpd.read_file(gml_pad, layer="AdministrativeUnit")
 
     def _normaliseer_gemeenten(self, df_adm: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
         """Zet de rauwe administrative-units DataFrame om naar een
